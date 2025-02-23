@@ -751,3 +751,621 @@ deloy
 ![image-20250222204532411](5day-png/32golang编译部署2.png)
 
 ![image-20250222205031652](5day-png/32golang编译部署3.png)
+
+### 集成Ansible的任务构建
+
+![image-20250223131118694](5day-png/32集成Ansible的任务构建.png)
+
+```bash 
+#在jenkins上安装 Ansible 环境
+[root@ubuntu2404 html]#apt update && apt -y install ansible
+
+#打通key验证
+Jenkins账号到远程主机的root用户的key验证
+jenkins@ubuntu2404:~$ ssh-keygen
+jenkins@ubuntu2404:~$ ssh-copy-id 10.0.0.100
+jenkins@ubuntu2404:~$ ssh-copy-id 10.0.0.101
+
+#Ubuntu24.04默认没有配置文件，可以手动创建一个空文件，使用默认值即可
+[root@ubuntu2404 ~]#ansible --version
+ansible [core 2.16.3]
+  config file = None	#缺少配置文件
+  configured module search path = ['/root/.ansible/plugins/modules', '/usr/share/ansible/plugins/modules']
+  ansible python module location = /usr/lib/python3/dist-packages/ansible
+  ansible collection location = /root/.ansible/collections:/usr/share/ansible/collections
+  executable location = /usr/bin/ansible
+  python version = 3.12.3 (main, Feb  4 2025, 14:48:35) [GCC 13.3.0] (/usr/bin/python3)
+  jinja version = 3.1.2
+  libyaml = True
+  
+[root@ubuntu2404 ~]#mkdir -p /etc/ansible/ && touch /etc/ansible/ansible.cfg
+[root@ubuntu2404 ~]#ansible --version
+ansible [core 2.16.3]
+  config file = /etc/ansible/ansible.cfg
+  configured module search path = ['/root/.ansible/plugins/modules', '/usr/share/ansible/plugins/modules']
+  ansible python module location = /usr/lib/python3/dist-packages/ansible
+  ansible collection location = /root/.ansible/collections:/usr/share/ansible/collections
+  executable location = /usr/bin/ansible
+  python version = 3.12.3 (main, Feb  4 2025, 14:48:35) [GCC 13.3.0] (/usr/bin/python3)
+  jinja version = 3.1.2
+  libyaml = True
+```
+
+编写hosts文件并测试
+
+```bash
+[root@ubuntu2404 ~]#cat /etc/ansible/hosts 
+[webservers]
+10.0.0.100 ansible_ssh_user=root
+
+[appservers]
+10.0.0.101 ansible_ssh_user=root
+```
+
+```bash
+jenkins@ubuntu2404:~$ ansible all -m ping
+10.0.0.101 | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+10.0.0.100 | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+**在jenkins中安装ansible插件**
+
+**Invoke Ansible Ad-Hoc Command**
+
+![image-20250223155643883](5day-png/32Invoke Ansible Ad-Hoc Command.png)
+
+
+
+**Invoke Ansible Playbook**
+
+![image-20250223162454799](5day-png/32Invoke Ansible Playbook.png)
+
+```bash
+[root@ubuntu2404 ansible]#cat /data/ansible/test.yaml 
+- hosts: webservers
+  remote_user: root
+
+  tasks:
+    - name: Execute command to get host IP
+      shell: hostname -I
+      register: result  # 修正：register 的值必须是合法的变量名
+
+    - name: Show result
+      debug:
+        msg: "{{ result.stdout }}"  # 修正：显示命令的输出内容
+
+    - name: Create new file
+      file:
+        path: /tmp/test.log
+        state: touch  # 修正：state 参数应为 touch，而不是 status
+```
+
+**使用Ansible Playbook基于参数化实现任务测试和生产多套不同环境的部署**
+
+```bash
+#创建两个hosts文件代表不同的环境
+[root@ubuntu2404 ansible]#cat /etc/ansible/hosts-product 
+[webservers]
+10.0.0.100 ansible_ssh_user=root
+[root@ubuntu2404 ansible]#cat /etc/ansible/hosts-test 
+[webservers]
+10.0.0.101 ansible_ssh_user=root
+```
+
+![image-20250223163240726](5day-png/32Ansible Playbook基于参数化实现任务测试和生产多套不同环境的部署.png)
+
+![image-20250223163313114](5day-png/32Ansible Playbook基于参数化实现任务测试和生产多套不同环境的部署1.png)
+
+![image-20250223163342876](5day-png/32Ansible Playbook基于参数化实现任务测试和生产多套不同环境的部署2.png)
+
+```bash
+[root@ubuntu2404]#cat /data/ansible/test.yaml 
+- hosts: webservers
+  remote_user: root
+
+  tasks:
+    - name: Execute command to get host IP
+      shell: hostname -I
+      register: result  # 修正：register 的值必须是合法的变量名
+
+    - name: Show result
+      debug:
+        msg: "{{ result.stdout }}"  # 修正：显示命令的输出内容
+
+    - name: Create new file
+      file:
+        path: /tmp/test.log
+        state: touch  # 修正：state 参数应为 touch，而不是 status
+```
+
+
+
+**使用Ansible Playbook实现向Playbook中传参功能**
+
+**编写Playbook文件**
+
+```
+[root@ubuntu2404 ansible]#cat /data/ansible/test.yaml
+- hosts: "{{ ansible_hosts }}"
+  remote_user: root
+
+  tasks:
+    - name: Execute command to get host IP
+      shell: hostname -I
+      register: result  # 修正：register 的值必须是合法的变量名
+
+    - name: Show result
+      debug:
+        msg: "{{ result.stdout }}"  # 修正：显示命令的输出内容
+
+    - name: Create new file
+      file:
+        path: /tmp/test.log
+        state: touch  # 修正：state 参数应为 touch，而不是 status
+```
+
+**创建主机清单文件**
+
+```bash
+[root@ubuntu2404 ansible]#cat /etc/ansible/hosts-product 
+[webservers]
+10.0.0.100 ansible_ssh_user=root
+
+[appservers]
+10.0.0.101 ansible_ssh_user=root
+[root@ubuntu2404 ansible]#cat /etc/ansible/hosts-test 
+[webservers]
+10.0.0.101 ansible_ssh_user=root
+
+[appservers]
+10.0.0.100 ansible_ssh_user=root
+```
+
+![image-20250223164740834](5day-png/32Ansible Playbook实现向Playbook中传参功能1.png)
+
+![image-20250223164806029](5day-png/32Ansible Playbook实现向Playbook中传参功能2.png)
+
+![image-20250223164831537](5day-png/32Ansible Playbook实现向Playbook中传参功能3.png)
+
+高级——》
+
+![image-20250223164924278](5day-png/32Ansible Playbook实现向Playbook中传参功能4.png)
+
+```
+Value
+$hosts_list
+```
+
+
+
+
+
+### 构建后通知
+
+#### 邮件通知
+
+Mailer 和 Email Extension 插件都可以实现邮件通知功能
+
+**配置发送邮件的邮件通知**
+
+Jenkins—系统管理—系统设置
+
+注意:必须安装插件才能出现下面的SMTP配置
+
+配置邮件通知信息如下:
+
+- 用户名必须要和上面的系统管理员邮件地址相同
+- 用户默认邮件后缀，可为空
+- 启用"使用SSL协议"
+- SMTP 端口可以为空,默认为465，QQ邮箱必须加密，163可以不加密使用25端口
+- Reply-To Address 可以为空
+
+![image-20250223171206507](5day-png/32邮件通知.png)
+
+![image-20250223171249772](5day-png/32邮件通知2.png)
+
+
+
+![image-20250223172112965](5day-png/32邮件通知3.png)
+
+
+
+#### 钉钉
+
+创建群组——添加机器人——生成码
+
+![image-20250223172705022](5day-png/32钉钉1.png)
+
+![image-20250223172715312](5day-png/32钉钉2.png)
+
+**Jenkins** **安装** **DingTalk** **插件**
+
+**安装完插后，建议重启，否则可以通知失败**
+
+```bash
+#提示失败，可以重启jenkins解决
+[钉钉插件]发送消息时报错: java.lang.NullPointerException: Cannot invoke "io.jenkins.plugins.DingTalkUserProperty.getMobile()" because the return value of "hudson.model.User.getProperty(java.lang.Class)" is nullFinished: SUCCESS
+```
+
+![image-20250223172842026](5day-png/32钉钉3.png)
+
+Manage Jenkins --> 钉钉
+
+![image-20250223172916567](5day-png/32钉钉4.png)
+
+![image-20250223173611486](5day-png/32钉钉5.png)
+
+![image-20250223173633921](5day-png/32钉钉6.png)
+
+**配置任务实现钉钉通知**
+
+![image-20250223173813738](5day-png/32钉钉7.png)
+
+![image-20250223173857977](5day-png/32钉钉8.png)
+
+手机号支持多个,每个手机号一行,也可选 atall 即所有群里的人员(不必再输入手机号，如果输入手机号，仍然会@相关人员)
+
+自定义内容需要使用Markdown格式，比如:
+
+```bash
+- 构建ID: ${BUILD_ID}
+- 部署项目: ${JOB_NAME}
+- 项目URL: ${JOB_DISPLAY_URL}
+- 部署目录: ${WORKSPACE}
+```
+
+![image-20250223174052657](5day-png/32钉钉9.png)
+
+![image-20250223174104271](5day-png/32钉钉10.png)
+
+#### **微信通知**
+
+**注册企业微信添加WebHook机器**
+
+![image-20250223174236672](5day-png/32微信通知1.png)
+
+**Jenkins** **安装** **Qy Wechat Notification** **插件**
+
+**添加构建后操作**
+
+![image-20250223174334432](5day-png/32微信通知2.png)
+
+通知UserID
+
+```
+ALL 表示所有人
+hezhaokang,zhangsan #用户名大小写不敏感
+```
+
+更多消息定制消息格式
+
+```
+- 构建ID: ${BUILD_ID}
+- 部署项目: ${JOB_NAME}
+- 部署目录: ${WORKSPACE}
+```
+
+![image-20250223174636202](5day-png/32微信通知3.png)
+
+
+
+### 自动化构建
+
+两种自动化构建方式
+
+- 周期性定时构建
+- Webhook 触发构建
+
+#### 定时和SCM构建
+
+![image-20250223180614849](5day-png/32定时和SCM构建.png)
+
+- 定时构建: 按时间周期性的触发构建
+
+- 轮询SCM(Source Code Management): 
+
+  指的是定期到代码仓库检查代码是否有变更，存在代码变更时就运行pipeline;为了能够从CI中得到更多的收益，轮询操作越频繁越好;显然，这会给SCM带去无谓的压力,所以构建的触发由SCM负责通知Jenkins最为理想;但在外部的SCM无法通知到局域网中的Jenkins时，可以采轮询SCM方式倒也不失为一种选择
+
+  首次任务会进行构建，后续查看SCM代码是否变化，来决定是否构建
+
+
+
+Jenkins cron语法遵循Unix cron语法的定义,但在细节上略有差别
+
+一项cron的定义包含由空白字符或Tab分隔的5个字段，用于定义周期性的时间点
+
+H 符号可用于任何字段,且它能够在一个时间范围内对项目名称进行散列值计算出一个唯一的偏移量，以避免所有配置相同cron值的项目在同一时间启动;比如:triggers { cron(H(0,30)) }，表示每小时的前半小时的某一分钟进行构建
+
+```bash
+Examples:
+# Every fifteen minutes (perhaps at :07, :22, :37, :52):
+H/15 * * * *    
+# Every ten minutes in the first half of every hour (three times, perhaps at :04, :14, :24):
+H(0-29)/10 * * * *
+# Once every two hours at 45 minutes past the hour starting at 9:45 AM and finishing at 3:45 PM every weekday:
+45 9-16/2 * * 1-5
+# Once in every two hour slot between 8 AM and 4 PM every weekday (perhaps at 9:38 AM, 11:38 AM, 1:38 PM, 3:38 PM):
+H H(8-15)/2 * * 1-5
+# Once a day on the 1st and 15th of every month except December:
+H H 1,15 1-11 *
+```
+
+范例: 每小时构建
+
+```
+H * * * *
+```
+
+每3分钟构建一次,如:在2:55,2:58,3:01,3:04时间点进行构建
+
+```
+H/3 * * * *
+```
+
+范例: 每分钟执行SCM 构建
+
+```
+* * * * *
+```
+
+**注意：SCM任务会在左侧多出一个“Git轮询日志，可以看到轮询的记录信息**
+
+观察Git 轮询日志可以看到当有变化时才会构建,否则不会执行构建
+
+![image-20250223175959422](5day-png/32定时构建.png)
+
+![image-20250223180403749](5day-png/32SCM构建.png)
+
+#### **构建Webhook触发器**
+
+构建触发器(webhook)，也称为钩子，实际上是一个HTTP回调，其用于在开发人员向gitlab提交代码后能够触发jenkins自动执行代码构建操作。
+
+![image-20250223180639840](5day-png/32Webhook 触发器.png)
+
+常见场景: 
+
+只有在开发人员向develop分支提交代码的时候会自动触发代码构建和部署至测试环境，而向主分支提交的代码不会自动构建，需要运维人员手动部署代码到生产环境。
+
+**可以使用多种方式实现 Webhook 触发构建**
+
+- 触发远程构建: 此方式无需安装插件
+
+- Build when a change is pushed to GitLab. GitLab webhook URL: 需要安装Gitlab插件
+- Generic Webhook Trigger : 需要安装 Generic Webhook Trigger Plugin 插件
+
+##### 触发远程构建
+
+![image-20250223181314286](5day-png/32触法远程构建.png)
+
+```
+http://jenkins.kang.com:8080/job/freestyle-wheel-deploy/build?token=123456
+```
+
+在gitlab服务器上操作
+
+![image-20250223191949825](5day-png/32Webhook 触发器1.png)
+
+添加webhooks
+
+![image-20250223192136845](5day-png/32Webhook 触发器2.png)
+
+
+
+![image-20250223192201370](5day-png/32Webhook 触发器3.png)
+
+**注意：新版本不再允许用户的密码方式，curl测试成功，但gitlab测式会提示403错误，只支持Token**
+
+**解决办法**
+
+在jenkins上新建一个账号
+
+![image-20250223192430704](5day-png/32Webhook 触发器4.png)
+
+登录到kang账号，创建一个token
+
+```
+1198d1fb13a43e6a3e281c52c8d65642de
+```
+
+![image-20250223192645567](5day-png/32Webhook 触发器5.png)
+
+
+
+```bash
+#在命令行可以触发
+[root@ubuntu2404 ~]#curl http://kang:123456@jenkins.kang.com:8080/job/freestyle-wheel-deploy/build?token=123456
+```
+
+**在gitlab上面修改webhook**
+
+```
+http://kang:1198d1fb13a43e6a3e281c52c8d65642de@jenkins.kang.com:8080/job/freestyle-wheel-deploy/build?token=123456
+```
+
+![image-20250223194033365](5day-png/32Webhook 触发器6.png)
+
+
+
+
+
+```
+http://kang:1198d1fb13a43e6a3e281c52c8d65642de@jenkins.kang.com:8080/job/freestyle-wheel/build?token=123456
+```
+
+```
+http://kang:1198d1fb13a43e6a3e281c52c8d65642de@jenkins.kang.com:8080/job/tag/build?token=123456
+```
+
+
+
+**第二种插件方式**
+
+jenkins上配置
+
+![image-20250223201827977](5day-png/32Webhook 触发器7.png)
+
+![image-20250223201842873](5day-png/32Webhook 触发器8.png)
+
+```
+http://jenkins.kang.com:8080/project/tag
+fa6c9119a5765e8119b96a51ee67360e
+```
+
+在gitlab上还做上面的步骤，建立账号，设置令牌，开启出站请求
+
+设置Webhooks 添加刚才生成的路径和token
+
+![image-20250223202302983](5day-png/32Webhook 触发器9.png)
+
+
+
+### **构建前后多个项目关联自动触发任务执行**
+
+用于多个 Job 相互关联，需要同行执行多个job的场景,比如:如果job1后希望自动构建job2
+
+可以用两种方法实现
+
+- 在前面任务中利用构建后操作关联后续任务
+- 在后面任务中利用构建触发器关联前面任务
+
+注意:
+
+上面两种方法,都需要在前面任务执行后才能自动关联执行后续任务
+
+不要实现任务的环路，会导致死循环
+
+
+
+1 在先执行的任务中配置构建后操作实现
+
+![image-20250223202942644](5day-png/32任务里配置构建后操作.png)
+
+2 在执行任务中配置其他工程构建后触发
+
+![image-20250223203334374](5day-png/32在执行任务中配置构建前操作.png)
+
+
+
+### **实现容器化的Docker任务**
+
+![image-20250223203541427](5day-png/32实现容器化的Docker任务.png)
+
+当前越来越多的组织以容器形式运行应用, 应用交付形式统一为Container Image
+
+交付的Container Image由Registry存储和分发,应用以容器化形式由Docker，Kubernetes进行编排运行
+
+jenkins的多款插件都能实现容器镜像Image构建和推送
+
+- docker-build-step 
+- Docker 
+- CloudBees Docker Build and Publish
+- Docker Pipeline Plugin：这个插件允许在Jenkins Pipeline中使用Docker来构建、发布和管理容器。它提供了一组用于在Pipeline脚本中执行Docker相关操作的步骤。
+- Docker Slaves Plugin：这个插件允许Jenkins使用Docker容器作为构建代理（agent）。它可以动态地启动和停止Docker容器来扩展Jenkins的构建能力
+
+**实现自由风格任务实现Docker镜像制作并运行**
+
+![image-20250223203810746](5day-png/32实现自由风格任务实现Docker镜像制作并运行.png)
+
+**在harbor.wang.org主机上安装Harbor**
+
+```
+[root@ubuntu2404 ~]#wget https://mirrors.tuna.tsinghua.edu.cn/gitlab-ce/ubuntu/pool/noble/main/g/gitlab-ce/gitlab-ce_17.8.2-ce.0_amd64.deb
+
+```
+
+
+
+**在部署应用的目标主机安装Docker，并且打开远程连接端口，并且信任harbor**
+
+```bash
+#在Jenkins主机及应用主机上安装Docker
+[root@ubuntu2404 ansible]#apt update && apt -y install docker.io
+#方法1:并信任harbor，
+[root@jenkins ~]#vim /lib/systemd/system/docker.service
+.....
+#修改此行
+ExecStart=/usr/bin/dockerd -H fd:// -H 127.0.0.1:2375 --
+containerd=/run/containerd/containerd.sock --insecure-registry harbor.wang.org
+.....
+#方法2：信任harbor
+[root@jenkins ~]#cat /etc/docker/daemon.json 
+{
+  "insecure-registries": ["harbor.wang.org"]
+}
+#需要重启jenkins上面的权限才能生效
+[root@ubuntu2204 ~]#systemctl restart jenkins
+
+#默认jenkins用户无法访问docker服务器
+#方法1：
+#修改jenkins用户权限可以访问docker的socket文件
+[root@ubuntu2204 ~]#usermod -aG docker jenkins
+[root@ubuntu2204 ~]#id jenkins 
+uid=115(jenkins) gid=120(jenkins) 组=120(jenkins),119(docker)
+#需要重启jenkins上面的权限才能生效
+[root@ubuntu2204 ~]#systemctl restart jenkins
+
+[root@ubuntu2204 ~]#systemctl daemon-reload 
+[root@ubuntu2204 ~]#systemctl restart docker.service
+#方法2：打开监听端口2375/tcp支持Jenkins用户直接连接,
+[root@jenkins ~]#vim /lib/systemd/system/docker.service
+.....
+#修改此行
+ExecStart=/usr/bin/dockerd -H fd:// -H tcp://127.0.0.1:2375 ......
+```
+
+用jenkins和后端的两台服务器上登录harbor
+
+```bash
+[root@ubuntu2404 docker]#su - jenkins 
+jenkins@ubuntu2404:~$ docker login -ukang -pHh123456 harbor.kang.com
+WARNING! Using --password via the CLI is insecure. Use --password-stdin.
+WARNING! Your password will be stored unencrypted in /var/lib/jenkins/.docker/config.json.
+Configure a credential helper to remove this warning. See
+https://docs.docker.com/engine/reference/commandline/login/#credentials-store
+
+Login Succeeded
+jenkins@ubuntu2404:~$ 
+logout
+[root@ubuntu2204 ~]#docker login -ukang -pHh123456 harbor.kang.com
+WARNING! Using --password via the CLI is insecure. Use --password-stdin.
+WARNING! Your password will be stored unencrypted in /root/.docker/config.json.
+Configure a credential helper to remove this warning. See
+https://docs.docker.com/engine/reference/commandline/login/#credentials-store
+
+Login Succeeded
+```
+
+```bash
+[root@ubuntu2404 scripts]#cat docker-spring-book.sh
+#!/bin/bash
+#
+REGISTRY=harbor.kang.com
+PORT=80
+
+HOSTS="
+10.0.0.100
+10.0.0.101"
+
+mvn clean package -Dmaven.test.skip=true
+
+docker build -t ${REGISTRY}/example/myapp:v$BUILD_ID  . 
+docker push ${REGISTRY}/example/myapp:v$BUILD_ID
+
+for i in $HOSTS;do
+    ssh root@$i "docker rm -f myapp ; docker  run -d  -p $PORT:8888 --name myapp --restart always ${REGISTRY}/example/myapp:v$BUILD_ID"
+    
+done
+```
+
