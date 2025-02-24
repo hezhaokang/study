@@ -1369,3 +1369,88 @@ for i in $HOSTS;do
 done
 ```
 
+
+
+### 实现参数容器化docker任务
+
+```bash
+root@ubuntu2404 scripts]#cat docker-spring-book.sh
+#!/bin/bash
+#
+REGISTRY=harbor.kang.com
+PORT=80
+
+HOSTS="
+10.0.0.100
+10.0.0.101"
+
+mvn clean package -Dmaven.test.skip=true
+
+docker build -t ${REGISTRY}/example/myapp:$TAG  . 
+docker push ${REGISTRY}/example/myapp:$TAG
+
+for i in $HOSTS;do
+    ssh root@$i "docker rm -f myapp ; docker  run -d  -p $PORT:8888 --name myapp --restart always ${REGISTRY}/example/myapp:$TAG"
+    
+done
+```
+
+![image-20250224194237821](5day-png/32参数化容器构建1.png)
+
+![image-20250224194051177](5day-png/32参数化容器构建2.png)
+
+![image-20250224194111688](5day-png/32参数化容器构建3.png)
+
+```bash
+#方法二
+#开启后端服务器的远程连接
+[root@ubuntu2204 ~]#vim /lib/systemd/system/docker.service
+ExecStart=/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock -H tcp://0.0.0.0:2375
+```
+
+修改脚本
+
+```bash
+[root@ubuntu2404 scripts]#cat docker-spring-book-docker.sh
+#!/bin/bash
+#
+REGISTRY=harbor.kang.com
+PORT=80
+
+HOSTS="
+10.0.0.100
+10.0.0.101"
+
+mvn clean package -Dmaven.test.skip=true
+
+docker build -t ${REGISTRY}/example/myapp:$TAG  . 
+docker push ${REGISTRY}/example/myapp:$TAG
+
+for i in $HOSTS;do
+    #ssh root@$i "docker rm -f myapp ; docker  run -d  -p $PORT:8888 --name myapp --restart always ${REGISTRY}/example/myapp:$TAG"
+    docker -H $i rm -f myapp
+    docker -H $i run -d  -p ${PORT}:8888 --restart always --name myapp ${REGISTRY}/example/myapp:$TAG
+done
+```
+
+
+
+### **基于Docker插件实现自由风格任务实现Docker镜像制作**
+
+**安装插件** **docker-build-step**
+
+在Jenkins安装Docker并配置 Docker 插件
+
+```bash
+#本地Docker Engine
+unix:///var/run/docker.sock
+unix://localhost:2375   #Jenkins-2.244.1 不支持
+#远程Docker Engine
+tcp://10.0.0.101:2375
+```
+
+![image-20250224213142418](5day-png/32基于Docker插件实现自由风格任务实现Docker镜像制作.png)
+
+**在** **Jenkins** **创建连接** **Harbor** **的凭证**
+
+![image-20250224213659661](5day-png/32基于Docker插件实现自由风格任务实现Docker镜像制作1.png)
