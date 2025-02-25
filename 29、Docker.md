@@ -10522,6 +10522,7 @@ https://goharbor.io/docs/2.10.0/install-config/
 [root@ubuntu2404 ~]#ls
 harbor-offline-installer-v2.12.2.tgz
 [root@ubuntu2404 ~]#tar xf harbor-offline-installer-v2.12.2.tgz -C /usr/local/
+[root@ubuntu2404 ~]#cd /usr/local/harbor/
 [root@ubuntu2404 harbor]#cp harbor.yml.tmpl harbor.yml
 [root@ubuntu2404 harbor]#ls
 common.sh  harbor.v2.12.2.tar.gz  harbor.yml  harbor.yml.tmpl  install.sh  LICENSE  prepare

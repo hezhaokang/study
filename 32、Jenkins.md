@@ -1454,3 +1454,2287 @@ tcp://10.0.0.101:2375
 **在** **Jenkins** **创建连接** **Harbor** **的凭证**
 
 ![image-20250224213659661](5day-png/32基于Docker插件实现自由风格任务实现Docker镜像制作1.png)
+
+
+
+## Jenkins分布式说明
+
+<img src="5day-png/32jnkins分布式.png" alt="image-20250225091304641" style="zoom:50%;" />
+
+采用 master/agent 架构，因而其节点可划分主节点(master)和代理节点(agent)两种类型,，代理节点也被称为从节点(slave)
+
+主节点负责提供UI、处理HTTP请求及管理构建环境等，而代理节点则主要负责执行构建任务
+
+- 主节点Master/Controller: 
+
+  Jenkins的一个部署实例的核心控制系统，它能够完全访问所有Jenkins配置的选项和任务（job)列表，而且，若不存在其他代理节点，主节点也是默认的任务执行节点
+
+- 代理节点Slave/Agent:
+
+  在早先版本的Jenkins中，代理节点 (agent)也被称为从节点(slave),它代表着所有的非主节点
+
+  这类节点由主节点管理，按需分配或指定执行特定的任务，例如不同的构建任务或测试
+
+  脚本式流水线中,节点特指一个运行代理节点的系统,而在声明式流水线中,它则是分配的一个作为代理节点的特定节点
+
+- 执行器（Executor):
+
+  简单来说，Executor只是节点或代理节点用于执行任务的一个糟位
+
+Executor的数量定义了该节点可以执行的并发任务量，一个节点上可以有任务数量的糟位，但也允行管理员按节点资源定义合适的数量
+
+在主节点将任务分配给特定节点时，该节点上必须有可用的Executor来立即执行该任务,否则、只能等到有空闲槽位可用
+
+![image-20250225091532986](5day-png/32jenkins分布式2.png)
+
+**Jenkins主从架构图**
+
+![image-20250225091644866](5day-png/32Jenkins主从架构图.png)
+
+### 节点标签Label
+
+Jenkins中的标签(tag)指的是节点上的标识符，而后可由pipeline中的agent指令等进行过滤和选择节点执行
+
+当Agent节点较多时，基于方便管理的目的，通常应该给这些节点添加能够体现其某种特性或功能的标签，以便于在构建任务中能基于标签过滤出符合条件的agent来
+
+一个 Agent 上可添加多个标签,一个标签也可以添加至多个 Agent, 可以在作业中通过标签表达式实现Agent的过滤
+
+标签名称不允许使用空白字符，也不允许使用标签表达式中预留的关键字，例如: !、&、|、<、>、) 和（ 等
+
+常用的标签纬度有如下几个
+
+- 操作系统类型: Linux、Windows、MacOS
+- 操作系统位数: 32bit、64bit
+- 集成的工具链: jdk、Go、Python、Nodejs等
+
+**标签表达式（label expressions）支持如下操作符**
+
+- !expression：表达式条件取反
+
+- a && b：表达式间“与” 关系
+
+- a || b：表达式间“或” 关系
+
+- a -> b：表示如果满足a表达式，则同时必须满足b表达式,但是如果不满足a,则不要求满足b,等同于“!a || b”
+
+  示例: linux -> x64，意味着，如果操作系统为linux，则它也必须是x64的系统环境，如果不是linux，则无要求必须是x64
+
+- a<->b：表示两个条件要么同时满足，要么同时都不满足，即等同于 “a && b || !a && !b”
+
+- (expression)：表达式分组，常在需要改变操作符间的优先级顺序时使用
+
+**Jenkins Master与Agent之间的通信方式**
+
+<img src="5day-png/32静态agent.png" alt="image-20250225091920946" style="zoom:50%;" />
+
+- Launch agent via SSH
+
+  SSH连接, Agent端是SSH Server端
+
+  **此方式需要安装SSH Build Agents插件**
+
+  方式1: 
+
+  在Jenkins Agent节点运行ssh服务,接收Master的远程连接
+
+  在Controller端保存认证信息为Credential,可以口令认证和密钥认证
+
+  运行者身份：普通用户jenkins，/home/jenkins/agent目录，作为Agent端的工作目录
+
+  Controller ssh client --> Agent ssh server 
+
+  方式2: 
+
+  通过基于 jenkins/ssh-agent 镜像的容器运行
+
+  此方式只支持密钥认证
+
+  使用ssh-keygen生成一对密钥，并将公钥通过环境变量传递给 ssh-agent容器
+
+  将私钥保存为 Jenkins上的凭据
+
+- Launch agent by connecting it to the controller
+
+  注意：此方式中文翻译为**通过** **Java Web** **启动代理**
+
+  基于JNLP-HTTP 协议连接器实现
+
+  在agent上以手动或系统服务的方式经由JNLP协议触发双向连接的建立
+
+  要求：Controller端额外提供一个套接字以接收连接请求，默认使用tcp协议的50000端口，也支持使用随机端口（安全，可能会对服务端在防火墙开放该端口造成困扰），也可以使用websocket，基于默认8080端口建立集群通信连接
+
+  Controller jnlp server <-- Agent jnlp client 
+
+- Launch agent via execution of command on the controller
+
+  在Controller上远程运行命令启动Agent
+
+  在Master 上以远程运行命令的方式启动Agent,需要ssh服务
+
+### **Agent** **分类**
+
+Agent 可以分为静态和动态两种
+
+- 静态Agent：
+
+  固定的持续运行的Agent,即使没有任务,也需要启动Agent 
+
+  以daemon形式运行的Jenkins
+
+  每个Agent可以存在多个Executor，具体的数量应该根据Agent所在主机的系统资源来设定
+
+  (1) Linux Jenkins (2) Windows Jenkins (3) Jenkins Container 方式
+
+  注意：很多的构建步骤，有可能会通过运行shell命令进行，则必须要确保在Container内部有所调用的可用shell命令
+
+- 动态Agent：
+
+  按需动态创建和删除 Agent ,当无任务执行时,删除Agent
+
+  可以基于Docker 和 Kubernetes 实现
+
+  - Docker Plugin 
+
+    在基于配置好的Docker Host上，按需要创建以容器方式运行的 Agent
+
+    需要事先配置好容器模板
+
+  - Kubernetes Plugin 
+
+    基于配置好的Kubernetes集群环境，按需要创建以Pod方式运行Agent，需要事先配置Pod模板
+
+    由Controller按Job的运行需要临时创建Agent，Agent数量可以动态伸缩, 且Job运行结束后会删除Agent
+
+    可以把每个Agent视作一个动态的Executor
+
+    依赖的环境：云，支持由Jenkins Controller通过API调用
+
+    而 Jenkins 自身既可以部署在k8s上，也完全可以运行在k8s外
+
+
+
+### 以Docker容器方式运行Agent
+
+<img src="5day-png/32容器方式实现jenkins.png" alt="image-20250225095827157" style="zoom:50%;" />
+
+### **基于** **SSH** **协议实现** **Jenkins** **分布式**
+
+**Slave** **节点安装** **Java** **等环境确保和** **Master** **环境一致**
+
+Slave 节点通过从Master节点自动下载的基于 JAVA 的 **remoting.jar** 程序包实现,所以需要安装JDK
+
+Slave服务器需要创建与Master相同的数据目录，因为脚本中调用的路径只有相对于Master的一个路径，此路径在master与各node节点应该保持一致。任务中执行的脚本存放的路径和master也必须一致.
+
+如果Slave需要执行编译或执行特定的job，则也需要配置Java或其它语言环境,安装 git、maven、go、ansible等与master相同的基础运行环境
+
+**注意：Jenkins Agent 和Master的环境尽可能一致，包括软件的版本，路径，脚本，ssh key验证,域名解析等**
+
+```bash
+#在两个slave主机上执行下面操作，安装和Master节点相同版本的jdk
+[root@ubuntu2404 ~]#apt update && apt install openjdk-17-jdk -y
+```
+
+**Master** **节点安装插件**
+
+安装 **SSH Build Agents** 插件，实现 ssh 连接代理
+
+**Master节点上配置连接的slave**
+
+![image-20250225102012661](5day-png/32基于SSH协议实现Jenkins分布式.png)
+
+**添加** **Master** **访问** **Slave** **认证凭据**
+
+用于 Master 连接 Slave 节点的凭据
+
+可以是用户密码的凭据,也可以配置Master节点到Slave节点SSH key 验证
+
+以root 身份连接 Agent 
+
+如果已经实现ssh key 验证，下面可以不配置
+
+![image-20250225102102136](5day-png/32基于SSH协议实现Jenkins分布式1.png)
+
+这是在agent服务器开启了一个java程序
+
+```bash
+[root@ubuntu2404 ~]#ss -ntp
+State            Recv-Q            Send-Q                             Local Address:Port                              Peer Address:Port            Process                                  
+ESTAB            0                 52                           [::ffff:10.0.0.201]:22                           [::ffff:10.0.0.1]:56887            users:(("sshd",pid=983,fd=4))           
+ESTAB            0                 0                            [::ffff:10.0.0.201]:22                         [::ffff:10.0.0.204]:48790            users:(("sshd",pid=3455,fd=4))          
+[root@ubuntu2404 ~]#ls /var/lib/jenkins/
+remoting  remoting.jar
+[root@ubuntu2404 ~]#ps aux | grep java
+root        3478  3.4  5.5 3104980 109412 ?      Ssl  10:17   0:12 java -jar remoting.jar -workDir /var/lib/jenkins -jar-cache /var/lib/jenkins/remoting/jarCache
+```
+
+范例：
+
+**1 ssh连接**
+
+**ssh连接是输入yes和no的解决办法**
+
+```bash
+#方法一
+[root@ubuntu2404 ~]#vim /etc/ssh/ssh_config
+StrictHostKeyChecking no
+```
+
+方法二
+
+![image-20250225103540310](5day-png/32基于SSH协议实现Jenkins分布式2.png)
+
+**2 配置域名解析** **DNS**
+
+```bash
+[root@ubuntu2404 ~]#host gitlab.kang.com
+gitlab.kang.com has address 10.0.0.205
+```
+
+**3 把在master上的脚本移动到agent上 并安装maven**
+
+maven版本和master上的版本最好一样
+
+```bash
+[root@ubuntu2404 scripts]#scp -r /data/ 10.0.0.201:/
+[root@ubuntu2404 ~]#apt install maven -y
+```
+
+**4 打通agent的root用户到远程服务器的root用户的key验证**
+
+```bash
+[root@ubuntu2404 ~]#ssh-keygen
+[root@ubuntu2404 ~]#ssh-copy-id root@10.0.0.100
+[root@ubuntu2404 ~]#ssh-copy-id root@10.0.0.101
+```
+
+![image-20250225115032719](5day-png/32基于SSH协议实现Jenkins分布式3.png)
+
+![image-20250225115047121](5day-png/32基于SSH协议实现Jenkins分布式4.png)
+
+![image-20250225115101356](5day-png/32基于SSH协议实现Jenkins分布式5.png)
+
+```bash
+bash -x /data/jenkins/scripts/spring-boot-helloworld.sh
+```
+
+```bash
+[root@ubuntu2404 ~]#cat /data/jenkins/scripts/spring-boot-helloworld.sh
+#!/bin/bash
+#
+#提前在目标服务器上手动创建下面目录
+APP=spring-boot-helloworld
+APP_PATH=/data/${APP}
+
+HOST_LIST="
+10.0.0.100
+10.0.0.101
+"
+PORT=8888
+
+mvn clean package -Dmaven.test.skip=true
+
+for host in $HOST_LIST;do
+    ssh root@$host "[ -e $APP_PATH ] || mkdir -p $APP_PATH"
+    ssh root@$host killall -9 java &> /dev/null
+    scp target/${APP}-*-SNAPSHOT.jar  root@$host:${APP_PATH}/${APP}.jar
+    #ssh root@$host "java -jar ${APP_PATH}/${APP}.jar --server.port=8888 &"
+    ssh root@$host "nohup java -jar  ${APP_PATH}/${APP}.jar --server.port=$PORT  &>/dev/null & "&
+done
+```
+
+
+
+### **基于JNLP协议的Java Web启动代理**
+
+**Launch agent by connecting it to the controller** **也称为 通过** **Java Web** **启动代理**
+
+此方式无需安装插件，即可实现
+
+**在Jenkins Master节点实现全局安全配置**
+
+使用随机端口或者固定端口都可以
+
+
+
+![image-20250225120354425](5day-png/32基于JNLP协议的Java Web启动代理1.png)
+
+![image-20250225120629928](5day-png/32基于JNLP协议的Java Web启动代理2.png)
+
+**代理 jenkins-agent2-jnlp**
+
+**Run from agent command line: (Unix)** 
+
+```
+curl -sO http://jenkins.kang.com:8080/jnlpJars/agent.jar
+java -jar agent.jar -url http://jenkins.kang.com:8080/ -secret f7290b133482b54a7888c8e6e24c3ee4cca69c70d992d3fe1fa8544c31d74fd3 -name "jenkins-agent2-jnlp" -webSocket -workDir "/var/lib/jenkins"
+```
+
+**Run from agent command line: (Windows)** 
+
+```
+curl.exe -sO http://jenkins.kang.com:8080/jnlpJars/agent.jar
+java -jar agent.jar -url http://jenkins.kang.com:8080/ -secret f7290b133482b54a7888c8e6e24c3ee4cca69c70d992d3fe1fa8544c31d74fd3 -name "jenkins-agent2-jnlp" -webSocket -workDir "/var/lib/jenkins"
+```
+
+**Or run from agent command line, with the secret stored in a file: (Unix)** 
+
+```
+echo f7290b133482b54a7888c8e6e24c3ee4cca69c70d992d3fe1fa8544c31d74fd3 > secret-file
+curl -sO http://jenkins.kang.com:8080/jnlpJars/agent.jar
+java -jar agent.jar -url http://jenkins.kang.com:8080/ -secret @secret-file -name "jenkins-agent2-jnlp" -webSocket -workDir "/var/lib/jenkins"
+```
+
+**Or run from agent command line, with the secret stored in a file: (Windows)** 
+
+```
+echo f7290b133482b54a7888c8e6e24c3ee4cca69c70d992d3fe1fa8544c31d74fd3> secret-file
+curl.exe -sO http://jenkins.kang.com:8080/jnlpJars/agent.jar
+java -jar agent.jar -url http://jenkins.kang.com:8080/ -secret @secret-file -name "jenkins-agent2-jnlp" -webSocket -workDir "/var/lib/jenkins"
+```
+
+If you prefer to use TCP instead of WebSockets, remove the `-webSocket` option. Run `java -jar agent.jar -help` for more.
+
+Note: PowerShell users must use curl.exe instead of curl because curl is a default PowerShell cmdlet alias for Invoke-WebRequest.
+
+
+
+```bash
+#在agint上执行
+[root@ubuntu2404 ~]#curl -sO http://jenkins.kang.com:8080/jnlpJars/agent.jar
+[root@ubuntu2404 ~]#ls
+agent.jar
+[root@ubuntu2404 ~]#java -jar agent.jar -url http://jenkins.kang.com:8080/ -secret f7290b133482b54a7888c8e6e24c3ee4cca69c70d992d3fe1fa8544c31d74fd3 -name "jenkins-agent2-jnlp" -webSocket -workDir "/var/lib/jenkins"
+Feb 25, 2025 12:08:54 PM org.jenkinsci.remoting.engine.WorkDirManager initializeWorkDir
+INFO: Using /var/lib/jenkins/remoting as a remoting work directory
+Feb 25, 2025 12:08:54 PM org.jenkinsci.remoting.engine.WorkDirManager setupLogging
+INFO: Both error and output logs will be printed to /var/lib/jenkins/remoting
+Feb 25, 2025 12:08:54 PM hudson.remoting.Launcher createEngine
+INFO: Setting up agent: jenkins-agent2-jnlp
+Feb 25, 2025 12:08:54 PM hudson.remoting.Engine startEngine
+INFO: Using Remoting version: 3283.v92c105e0f819
+Feb 25, 2025 12:08:54 PM org.jenkinsci.remoting.engine.WorkDirManager initializeWorkDir
+INFO: Using /var/lib/jenkins/remoting as a remoting work directory
+Feb 25, 2025 12:08:55 PM hudson.remoting.Launcher$CuiListener status
+INFO: WebSocket connection open
+Feb 25, 2025 12:08:55 PM hudson.remoting.Launcher$CuiListener status
+INFO: Connected
+```
+
+![image-20250225125426319](5day-png/32基于JNLP协议的Java Web启动代理3.png)
+
+![](5day-png/32基于SSH协议实现Jenkins分布式4.png)
+
+![](5day-png/32基于SSH协议实现Jenkins分布式5.png)
+
+```bash
+bash -x /data/jenkins/scripts/spring-boot-helloworld.sh
+```
+
+```bash
+[root@ubuntu2404 ~]#cat /data/jenkins/scripts/spring-boot-helloworld.sh
+#!/bin/bash
+#
+#提前在目标服务器上手动创建下面目录
+APP=spring-boot-helloworld
+APP_PATH=/data/${APP}
+
+HOST_LIST="
+10.0.0.100
+10.0.0.101
+"
+PORT=8888
+
+mvn clean package -Dmaven.test.skip=true
+
+for host in $HOST_LIST;do
+    ssh root@$host "[ -e $APP_PATH ] || mkdir -p $APP_PATH"
+    ssh root@$host killall -9 java &> /dev/null
+    scp target/${APP}-*-SNAPSHOT.jar  root@$host:${APP_PATH}/${APP}.jar
+    #ssh root@$host "java -jar ${APP_PATH}/${APP}.jar --server.port=8888 &"
+    ssh root@$host "nohup java -jar  ${APP_PATH}/${APP}.jar --server.port=$PORT  &>/dev/null & "&
+done
+```
+
+
+
+### 基于Docker的动态Agent
+
+**准备** **Docker Engine** **主机**
+
+```bash
+#安装docker并开启docker的远程连接 
+[root@ubuntu2404 ~]#apt update && apt install docker.io 
+[root@ubuntu2404 ~]#vim /lib/systemd/system/docker.service
+ExecStart=/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock -H tcp://0.0.0.0:2375
+[root@ubuntu2404 ~]#systemctl daemon-reload && systemctl restart docker.service
+```
+
+**安装** **Docker** **插件**
+
+**创建** **Cloud**
+
+管理 Jenkins -- Clouds --- New Cloud
+
+![image-20250225131617527](5day-png/32基于Docker的动态Agent.png)
+
+**添加** **Docker Agent templates**
+
+```bash
+#可以在Docker主机提前拉取镜像
+[root@ubuntu2404 ~]#docker pull registry.cn-beijing.aliyuncs.com/wangxiaochun/inbound-agent:alpine-jdk17
+[root@ubuntu2404 ~]#docker images
+REPOSITORY                                                    TAG            IMAGE ID       CREATED        SIZE
+registry.cn-beijing.aliyuncs.com/wangxiaochun/inbound-agent   alpine-jdk17   172c6050fbbb   3 months ago   138MB
+[root@ubuntu2404 ~]#docker run --rm registry.cn-beijing.aliyuncs.com/wangxiaochun/inbound-agent:alpine-jdk17 env
+LANGUAGE=en_US:en
+USER=jenkins
+HOSTNAME=4e1764a223f4
+SHLVL=1
+HOME=/home/jenkins
+AGENT_WORKDIR=/home/jenkins/agent
+PATH=/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+LANG=en_US.UTF-8
+LC_ALL=en_US.UTF-8
+JAVA_HOME=/opt/java/openjdk
+PWD=/home/jenkins
+TZ=Etc/UTC
+```
+
+**使用jnlp协议**
+
+![image-20250225132340975](5day-png/32基于Docker的动态Agent1.png)
+
+![image-20250225132442609](5day-png/32基于Docker的动态Agent2.png)
+
+**Container Setting** **配置名称解析**
+
+JNLP协议需要Docker 主机主动连接 Jenkins主机，所以需要确保Docker Engine 主机可以解析jenkins.kang.com的名称
+
+而SSH协议是 Jenkins 主机主动连接 Docker 主机，所以无需实现名称解析
+
+域名解析实现两种
+
+- 通过宿主机的DNS解析，容器可以继承宿主机的DNS配置
+- 可以Container Setting 如下面添加名称解析
+
+**如果基于JNLP协议，必须要实现Jenkins主机的名称解析，如下显示**
+
+![image-20250225132745997](5day-png/32基于Docker的动态Agent3.png)
+
+![image-20250225132818952](5day-png/32基于JNLP协议的Java Web启动代理4.png)
+
+![image-20250225141041699](5day-png/32基于Docker的动态Agent4.png)**使用 SSH Agent**
+
+![image-20250225141953117](5day-png/32基于Docker的动态Agent5.png)
+
+![image-20250225141852451](5day-png/32基于Docker的动态Agent6.png)
+
+![image-20250225141919171](5day-png/32基于Docker的动态Agent7.png)
+
+
+
+## Jenkins Pipeline
+
+**流水线和自由风格任务流程比较**
+
+![image-20250225142339352](5day-png/32Pipeline.png)
+
+- 一致性: Pipeline 用统一语法的代码的方式实现各个CICD的阶段的任务，不仅可以被纳入版本控制，还可以通过编辑代码实现目标效果
+- 直观性: 构建过程中每一步都可以直接的图形化显示输出,比如每个阶段的执行时间,直观友好,pipeline 帮助我们快速的定位哪个阶段的任务出现错误
+- 可持续性：Jenkins的重启或者中断后不影响已经执行的pipeline Job
+- 支持暂停：Pipeline可以选择停止并等待人工输入或批准后再继续执行
+- 支持回放: 如果失败,可以使用回放,进行临时性的修改 job ,再调试执行,如果成功,再真正修改任务即可
+- 可扩展：通过Groovy的编程更容易的扩展插件
+- 并行执行：通过Groovy脚本可以实现step，stage间的并行执行，和更复杂的相互依赖关系
+- 多功能：支持复杂CD要求，包括fork/join子进程，条件判断，循环和并行执行工作的能力
+
+### **Pipeline** **语法**
+
+当前 Jenkins 2.X 支持两种语法的流水线： 脚本式（命令式）和声明式
+
+- 脚本式Scripted Pipeline语法
+
+  此语法是 Jenkins最先支持pipeline语法，采用命令式风格，直接在流水线脚本中定义逻辑和程序流程
+
+- 声明式Declarative Pipeline语法
+
+  后来CloudBees公司为Jenkins引入的一种“流水线即代码”的pipeline语法
+
+  它允许用户在pipeline的定义中将更多的精力关注于期望pipeline的状态和输出之上，而非实现逻辑
+
+声明式和脚本化的流水线从根本上是不同的。 声明式流水线的是 Jenkins 流水线更新一些的特性:
+
+- 相比脚本化的流水线语法，它提供更丰富的语法特性
+- 是为了使编写和读取流水线代码更容易而设计的
+
+**Pipeline的基本结构**
+
+- pipeline
+
+  流水线的最外层结构，代表整条pipeline，包含着pipeline的完整逻辑;是声明式流水线语法的关健特征
+
+- node 和 agent
+
+  用于定义任务在哪里执行
+
+  每个node都是一个 Jenkins 节点，可以是 Jenkins master也可以是 Jenkins agent，node是执行step的具体服务器。
+
+  node 代码块也是脚本式pipeline语法的关健特性,声明式pipeline使用 agent 关健字
+
+- stages
+
+  用于包含所有stage的定义
+
+- stage
+
+  属于stages的子语句块
+
+  指定 stage 的名称, 用于定义每个阶段 stage 的主要任务
+
+  一个pipeline可以划分为若干个stage，每个stage都是一个完整的操作，比如: clone代码、代码编译、代码测试和代码部署，阶段是一个逻辑分组，可以跨多个node执行。
+
+- steps
+
+  属于stage的子语句块
+
+  每个阶段stage中定义完成该阶段功能所需要经历的一系列步骤
+
+  步骤 steps 是jenkins pipeline最基本的操作单元，从在服务器创建目录到构建容器镜像，由各类Jenkins 插件提供实现，例如： sh “make”
+
+  能够把这些步骤steps 同该stage中的其它定义（如环境的定义,Post 等）分隔开
+
+- post
+
+  用在stage 代码块（和steps 同级）或整个pipeline执行完成后的附加步骤，此指令非必须项
+
+**脚本式流水线语法**
+
+```
+https://www.jenkins.io/zh/doc/book/pipeline/
+```
+
+```bash
+ node {  
+    stage('Source') {
+        //git clone 
+    }
+    stage('Build') {
+        //mvn 
+    }
+    stage('Test') { 
+        //mvn test
+    }
+    stage('Deploy') { 
+        // scp 
+        // java -jar 
+    }
+ }
+ #特点：最外层是node {}     
+```
+
+**声明式流水线语法**
+
+声明式流水线是在"Pipeline plugin"的2.5版本添加到 Jenkins 流水线的 ，它在流水线子系统之上提供了 一种更简单，更常见的语法。 
+
+所有有效的声明式流水线必须包含在一个 pipeline 块中, 比如
+
+```
+ pipeline {
+    /* insert Declarative Pipeline here */
+ }
+```
+
+官方脚本
+
+```
+https://www.jenkins.io/zh/doc/book/pipeline/syntax/
+```
+
+**Pipeline 的基本结构** 
+
+实线部分为必须段，虚线为可选段
+
+![image-20250225142846592](5day-png/32Pipeline 的基本结构.png)
+
+pipeline的定义有一个明确的、必须遵循的结构，它由一些directive和section组成，每一个section又可包含其它的section、directive和step，以及一些condlition的定义
+
+Section:用于将那些在某个时间点需要一同运行的条目(item）组织在一起
+
+- agent section:指定负责运行代码的节点
+
+  在pipeline代码块的顶部，必须要有一个agent来指定“默认”的执行节点
+
+  而一个stage的顶部也可以有一个agent的定义，用来指定负责运行该stage中的代码的节点
+
+- stages section:组织---到多个stage
+
+- steps section:组织一至多个DSL格式的步骤
+
+- post section:在stage或整个pipeline的尾部封装--些需要被执行的步骤或者检验条件
+
+Directive(指令)︰负责完成特定功能的语句或代码块，如environment、tools、triggers、input和when等
+
+Steps : steps本身就是一个标识特定section的名称，其内部可以使用任何合法的DSL语句，例如git、sh、 bat和echo等
+
+**Pipeline的声明式语法要点**
+
+- steps内部的命令，每一条单独的命令都在当前任务的工作目录下执行。
+
+  即使A命令切换到了一个新的目录，接下来的B命令并不会在对应的新目录中执行，而是在当前任务的工作目录下执行。如果非要在切换后的目录下执行命令B，那么采用she11中的&&符号将多条命令拼接在一起即可。
+
+- 默认情况下，不支持shell里面的复杂语法，因为groovy有自己的条件表达式
+
+- 如果jenkins的工作目录下存在同名目录，则获取失败
+
+基本语法
+
+```bash
+pipeline {
+   agent any 
+   environment{
+   url='http://www.wangxiaochun.com'
+   }
+   stages {
+       stage('Source') {
+   steps {
+               // 
+               echo "Access ${url}"
+           }
+   }
+       stage('Build') { 
+           steps {
+               // 
+           }
+       }
+       stage('Test') { 
+           steps {
+               // 
+           }
+       }
+       stage('Deploy') { 
+           steps {
+               // 
+           }
+       }
+   }
+}
+#特点：最外层是 pipeline {}
+```
+
+### Pipeline 常见指令说明
+
+**agent** **可接受多种形式的参数**
+
+- any:任何可用节点
+
+- none:用于pipeline顶端时表示不定义默认的agent，每个stage就需要单独指定
+
+- label { label ""}:具有指定的标签的节点均为可用节点
+
+- node { label "" }:与label相似，但可以指定额外的参数customWorkspace
+
+- docker:在指定的容器中运行pipeline或stage代码，该容器动态创建并运行于预配置的可运行容器的node上，或能够匹配到指定label的node上;可用参数如下
+
+  image、label、args、rgistryUrl和rcgistryCredentialsId
+
+- dockerfile:功能上类似于上面docker参数，但容器镜像通过指定的docker进行构建;该参数要求Jenkinsfile必须从Multibranch Pipeline或者Pipeline from SCM中加载;可用参数如下
+
+  filename、dir、label、additionalBuildArgs、args、registryUrl和registryCredentialsId
+
+- kubernetes:于Kubernetes集群上指定的Pod中运行stage或pipeline代码，该参数同样要求Jenkinsfile必须从Multibranch Pipeline或者Pipeline from SCM中加载
+
+  需要在kubernetes参数中指定Pod模板
+
+**Stages和Stage**
+
+- stages是pipeline中最重要的section，stages负责描述pipeline中绝大部分的实际工作( work)
+- Jenkins会按照stages中定义的顺序自卞而后执行各个stage 
+- stages:封装了用于定义pipeline主体和逻辑的所有stage的定义，它包含一个或多个stage
+- stages中至少需要包含一个stage，每个stage 指令来定义CD过程的每个离散部分，
+- stage内部还支持再嵌套一个stages或一个parallel代码块，而后在这些代码块内部再嵌套stage，以指定stage的运行顺序
+- stage内部嵌套stages，用于指定以顺序（串行)方式依次运行该stages内部的各stage ;而stage内部嵌套的parallel{}}，用于指定以并行方式运行该parallel号内部的各stage
+- stage内部仅能定义steps、stages、parallel或matrix四者其中之一，且多层嵌套只能用在最后一个stage中;
+- 对于本身已经嵌套在parallel或matrix内部的stage来说，不支持在其内部再使用parallel或matrix;但仍能使用agent、tools和when等其它指令，甚至是stages书配置段以顺序运行stage
+
+**stage和steps**
+
+- 每个stage都只包含一个steps
+- Pipeline的基本结构决定了pipeline的整体流程，但真正“做事”是其内部一个个具体的step，因而steps是pipeline中最核心的组成部分
+- steps 负责在stage中定义一到多个DSL语句，steps 中的语句负责完成该stage中特定的功能，例如构建、测试和部署等;但能够同其它的语句分隔开，如environment等
+- 除了script，几乎所有的step在pipeline中都是不可拆分的原子操作
+- pipeline内置了大量的step，具体请参考https:// www.jenkins.io/doc/pipeline/steps
+- 除此之外，有相当一部分插件可直接当作step来用
+- steps段中的script{}步骤负责将groovy脚本引入到steps{}配置段中，但它非为必要的步骤，且复杂的脚本应该单独组织为Shared Libraries，并由Pipeline导入后使用
+
+**post section**
+
+在stage或pipeline的尾部定义一些step，并根据其所在stage或pipeline的完成情况来判定是否运行这些step
+
+post section支持的condition如下
+
+- always:总是运行
+- changed:其所处的stage或pipeline同前一次运行具有不同状态时，才运行该post
+- fixed: stage或pipeline本次运行成功，但前一次为failed或unstable时，才运行该post
+- regression: stage或pipeline前一次运行成功，但本次为failure、unstable或aborted时，才运行该post
+- aborted: stage或pipeline的运行状态为aborted时，才运行该post;在Web UI中灰色显示
+- failure: stage或pipeline的运行状态为failed时，才运行该post
+- success: stage或pipeline的运行状态为success时，才运行该post
+- unstable:因测试失败或代码冲突导致stage或pipeline的运行状态为unstable时，才运行该post;在Web UI中以黄色显示
+- unsuccessful: stagc或pipeline的运行不成功时，才运行该post
+- cleanup:在其它所有的post的条件均被评估后（无论stage或pipeline的状态为何）才运行该post
+
+**Jenkins Pipeline** **支持常用指令**
+
+无论是脚本式语法还是声明式语法，本质上都是执行各种命令，对于不同的命令需要采用专用的语法来实现指定的功能，常见的语法命令及其样式如下:
+
+- echo: 输出信息， echo "Building"
+
+- sh: 执行命令，sh 'command' sh([script: 'echo hello'])，用三个单号可以支持多行命令，即：sh ''' 多行shell命令 '''
+
+- git: 克隆代码，git branch: 'develop', credentialsId: 'd7e3bd', url: 'git@gitlab.wang.org:example/myapp.git'
+
+- env: 设置变量， env.PATH="/usr/local/java/bin:$PATH"
+
+- environmet:设定环境变量，可用于stage或pipeline代码块中;支持credentialsl)函数，用于通过标识符访问预定义的凭证
+
+- tools:指定需要在agent上下载并配置的工具，例如git、maven、jdk等，这些工具可经由PATH环境变量指定的位置访问到;可用于stage或pipeline中
+
+- parameters:用户在触发pipeline时应该提供的参数列表;仅可用于pipeline级别
+
+- options:仅可用在pipeline级别来配置pipeline自身的选项，支持的参数可由pipeline自身提供，也可由其它插件(例如timestamps）提供
+
+  例如“retry(2)”允许在pipeline失败时重试两次
+
+- triggers:用于指定负责自动启动pipeline的触发器，对于集成了Github或Gitlab等自带触发机制的系统场景，triggers并非必须的指令;仅可用于pipeline级别
+
+- libraries:当前pipeline可以导入的共享库，该共享库内部的代码则可被该pipeline调用
+
+- input: stagc中的专用指令，用于暂停pipeline并提示用户输入内容后继续
+
+- when: stage中的专用指令，用于设定该stage的运行条件
+
+**文件/目录相关指令**
+
+- isUnix :判断是否为类Unix系统
+- deleteDir:删除当前目录
+- dir(" / path/ to/dir"):切换到指定目录
+- fileExists (" /path/ to/dir"):判断文件是否存在
+- pwd:打印当前目录
+- writeFile:将内容写入指定的文件中，支持如下几个参数
+  - file:文件路径，支持相对路径和绝对路径，
+  - text:要写入的内容;
+  - encoding:目标文件的编码，空值为系统默认的编码;支持base64编码格式;可选参数
+
+- readFile:读取文件的内容;支持如下几个参数;
+  - file:文件路径，支持相对路径和绝对路径;
+  - encoding:读取文件内容时使用的编码格式;可选参数;
+
+**消息或控制指令**
+
+- echo("message"'):打印指定的消息;
+- error("message"):主动报错，并中止当前pipeline;
+- retry(count):重复执行count次在{}中定义的代码块
+- sleep: 让pipeline休眠一段时间，支持如下参数;
+  - time:整数值，休眠时长
+  - unit:时间单位，支持NANOSECONDS，MICROSECONDS、MILLISECONDS、SECONDS、MINUTES、HOURS和DAYS，可选参数
+- timeout:代码块的超时时长，支持如下参数
+  - time:整数值，休眠时长
+  - unit:时间单位，支持NANOSECONDS、MICROSECONDS,MILLISECONDS、SECONDS、MINUTES、HOURS和DAYS，可选参数
+  - activity:布尔类型，值为true时，表示在该代码块不再有月志活动时才算真正超时;可选参数
+- waitUntil:等待指定的条件满足时执行定义的代码块
+  - initialRecurrencePeriod:初始的重试周期，即测试条件是否满足的重试周期，默认为250ms;可选参数
+  - quiet:是否禁止将每次的条件测试都记入日志，默认为false，即记入日志;可选参数
+
+**发送通知指令**
+
+- mail:向指定邮箱发送邮件
+- subject:邮件标题;√不body:邮件正文
+- from (optional):发件人地址列表，逗号分隔
+- cc (optional) : CC email地址列表，逗号分隔
+- bcc (optional): BCC email地址列表，逗号分隔
+- charset(optional):编码格式
+- mimeType (optional): Email正文的MIME类型，默认为text/plain
+- replyTo (optional):回件地址，默认为Jenkins设置的全局配置中的邮箱地址
+
+**Node和Process相关指令**
+
+- bat: Windows的批处理脚本
+
+- powershell:运行指定的PowerShell脚本，支持Microsoft PowerShell 3+
+
+- pwsh: PowerShell Core Script
+
+- node:在指定的节点上运行后续的脚本
+
+- ws :分配工作空间
+
+- sh:运行shell脚本，支持的参数如下
+
+  - script:脚本代码块，支持指定脚本解释器，例如“#!/usr/bin/python3，否则将使用系统默认的解释器，且使用了-xe选项
+
+  - encoding (optional):脚本执行后输出的日志信息的编码格式，未定义时使用系统默认编码格式label(optional):显示在Web UI中的详细信息
+
+  - returnStdout (optional):布尔型值，true表示任务的标准输出将作为step的返回值，而不是打印到日志中;若有错误,依然会记入日志
+
+  - returnStatus (optional):正常情况了命令执行失败会返回非零状态码，设定该参数值为true时，表示将返回该step的结果，而非状态码
+
+**Pipeline** **简单案例**
+
+范例: 脚本式
+
+```bash
+node {
+ 	stage('Get code') {
+		echo '获取代码'
+ 		//git clone
+ 	}
+ 	stage('Build') {
+ 		echo '构建项目代码'
+ 	}
+ 	tage('Test') {
+ 		echo '测试项目功能'
+ 	}
+ 	stage('Deploy') {
+ 		echo '部署项目'
+ 	}
+}
+```
+
+范例: 声明式
+
+```bash
+pipeline {
+ 	agent any
+ 	stages {
+ 		stage('获取代码') {
+ 			steps {
+ 				echo '获取代码'
+ 			}
+ 		}
+ 		stage('构建代码') {
+ 			steps {
+ 				echo '构建项目代码'
+ 			}
+ 		}
+ 		stage('代码测试') {
+			steps {
+ 				echo '测试项目功能'
+ 			}
+ 		}
+ 		stage('项目部署') {
+ 			steps {
+ 				echo '部署项目'
+ 			}
+ 		}
+ 	}
+}
+```
+
+### 常用插件
+
+pipeline
+
+Pipeline Stage View
+
+Blue Ocean
+
+### **声明式** **Pipeline**
+
+steps 内部的命令，每一条单独的命令都在当前任务的工作目录下执行。
+
+```groovy
+pipeline {
+    agent any
+    environment {
+        APP = "testapp"
+    }
+    stages {
+        stage ('cmd test') {
+            steps {
+                echo '命令测试'
+                sh '''
+                    pwd
+                    rm -rf *
+                    mkdir -p testdir1/testdir2
+                    cd testdir1/testdir2 && pwd
+                    pwd && tree
+                    echo $WORKSPACE
+                    echo $JOB_NAME
+                    mkdir -p $WORKSPACE/$JOB_NAME
+                    touch $WORKSPACE/$JOB_NAME/${APP}.log
+                    pwd && tree
+                '''
+            }
+        }
+    }
+}
+```
+
+**脚本解析**
+
+1. **环境变量**：
+   - `APP = "testapp"`：定义了一个环境变量 `APP`，值为 `testapp`。
+2. **Agent**：
+   - `agent any`：表示该 Pipeline 可以在任何可用的 Agent 上运行。
+3. **阶段（Stage）**：
+   - 只有一个阶段 `cmd test`，用于测试 Shell 命令。
+4. **步骤（Steps）**：
+   - `echo '命令测试'`：输出提示信息。
+   - `sh 'pwd'`：打印当前工作目录。
+   - `sh 'rm -rf *'`：删除当前目录下的所有文件和文件夹。
+   - `sh 'mkdir testdir1'`：创建目录 `testdir1`。
+   - `sh 'cd testdir1 && pwd && mkdir testdir2 && cd testdir2 && pwd'`：
+     - 进入 `testdir1` 目录。
+     - 打印当前目录。
+     - 在 `testdir1` 中创建 `testdir2` 目录。
+     - 进入 `testdir2` 目录并打印当前目录。
+   - `sh 'pwd && tree'`：打印当前目录并显示目录树结构。
+   - `sh 'echo $WORKSPACE'`：打印 Jenkins 工作目录路径。
+   - `sh 'echo $JOB_NAME'`：打印当前任务的名称。
+   - `sh 'mkdir $WORKSPACE/$JOB_NAME'`：在 Jenkins 工作目录下创建一个以任务名称命名的目录。
+   - `sh 'touch $WORKSPACE/$JOB_NAME/${APP}.log'`：在刚创建的目录中创建一个日志文件，文件名为 `testapp.log`。
+   - `sh 'pwd && tree'`：再次打印当前目录并显示目录树结构。
+
+### 变量
+
+Jenkins环境变量可分为内置变量和用户自定义变量两类
+
+pipeline和stage得中用于定义环境变量的指令是environment，但定义位置的不同，也意味着其作用域的不同
+
+定义在pipeline顶部的环境变量可被其后的各stage所引用
+
+Jenkins全局环境变量可被所有的pipeline引用，它们以“env.”为前缀
+
+引用全局环境变量格式有四种:
+
+```bash
+${env.ENV_VAR_NAME}
+$env.ENV_VAR_NAME
+$ENV_VAR_NAME
+${ENV_VAR_NAME}
+
+#注意：变量引用有时要加双引号引起来，如："${env.<ENV_VAR_NAME>}"
+```
+
+范例：声明和使用变量
+
+```groovy
+pipeline {
+    agent any    
+    environment {
+        NAME = "hezhaokang"
+        CLASS = "M61"
+    }
+    stages {
+        stage('declare var') {
+            steps {
+                script {
+                    env.LOGIN = sh(returnStdout: true, script: "who | wc -l").trim()
+                }
+            }
+        }
+        stage('get var') {
+            steps {
+                echo "NAME=${env.NAME}"
+                echo "NAME=$NAME"
+                echo "NAME=${NAME}"
+                echo "NAME=$env.NAME"
+                echo "LOGIN=$LOGIN"
+                echo "LOGIN=${env.LOGIN}"
+            }
+        }
+    }
+}
+```
+
+### **使用凭据** **Credential**
+
+**此依赖于Credential Binding Plugin， 该插件通常在安装社区推荐的插件时会由Jenkins自行部署**
+
+- Username with password
+
+  用户名和密码使用变量名可自行指定，Jenkins都会通过credentialsID从指定的凭证提取出来用户名和密码并赋值给指定对应的变量
+
+  ```bash
+  withCredentials([usernamePassword(credentialsID: '<ID>',
+  usernameVariable: '<variable to hold username>',
+  passwordVariable: '<variable to hold password>')])
+  ```
+
+- SSH密钥
+
+  ```
+  withCredentials(sshUserPrivateKey(credentialsId: '<credentials-id>’,
+  keyFileVariable: 'MYKEYFILE'
+  passphraseVariable: 'PASSPHRASE’，
+  usernameVariable: USERNAME')])
+  { // some block }
+  ```
+
+  若安装了插件 SSH Agent Plugin，还可以使用“sshagent([]) { }”代码块
+
+  ```
+  stage("Update Source'){
+    sshagent(["gitlab-ssh-private-key-root"]) {
+      sh "git tag -a ${env.BUILD_TAG} -m 'test'"
+      sh "git push ${sshRepodef} --tags"
+    }
+  }
+  ```
+
+
+
+范例：基于变量构建helloworld-spring-boot项目和推送Docker镜像
+
+```groovy
+pipeline {
+    agent any
+    //tools {
+    //    maven 'maven-3.6.3'
+    //}
+    environment {
+        codeRepo="git@gitlab.kang.com:devops/spring-boot-helloworld.git"
+        credential="gitlab-kang-key"
+        harborServer='harbor.kang.com'
+        projectName='spring-boot-helloworld'
+        imageUrl="${harborServer}/example/${projectName}"
+        imageTag="${BUILD_ID}"
+        harborUserName="kang"
+        harborPassword="Hh123456"
+    }
+    stages {
+        stage('Source') {
+            steps {
+                git branch: 'main', credentialsId: "${credential}", url: "${codeRepo}"
+            }
+        }
+        stage('Test') {
+           steps {
+                //注意:不要修改hello()函数,否则会导致下面失败
+                sh 'mvn test'
+            }
+        }        
+        stage('Build') {
+            steps {
+                //sh 'mvn -B -DskipTests clean package'
+                 sh 'mvn clean package -Dmaven.test.skip=true'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build . -t "${imageUrl}:${imageTag}"'
+            }           
+        }
+        stage('Push Docker Image') {
+            steps {
+                //sh "echo ${harborPassword} | docker login -u ${harborUserName} --password-stdin ${harborServer}"
+                sh "docker login -u ${harborUserName} -p ${harborPassword} ${harborServer}"
+                sh "docker push ${imageUrl}:${imageTag}"
+            }   
+        }
+        stage('Run Docker ') {
+            steps {
+                sh 'ssh root@10.0.0.100 "docker rm -f ${projectName} ; docker run --name ${projectName} --restart always -p 80:8888 -d ${imageUrl}:${imageTag}"'
+                sh 'ssh root@10.0.0.101 "docker rm -f ${projectName} ; docker run --name ${projectName} --restart always -p 80:8888 -d ${imageUrl}:${imageTag}"'
+                //sh "docker -H 10.0.0.101 rm -f ${projectName} ; docker -H 10.0.0.101 run --name ${projectName} --restart always -p 80:8888 -d ${imageUrl}:${imageTag}"
+                //sh "docker -H 10.0.0.102 rm -f ${projectName} ; docker -H 10.0.0.102 run --name ${projectName} --restart always -p 80:8888 -d ${imageUrl}:${imageTag}"
+          
+            }   
+        }  		
+    }
+}
+```
+
+### 使用凭据提取密码
+
+```groovy
+pipeline {
+    agent any
+    //tools {
+    //    maven 'maven-3.6.3'
+    //}
+    environment {
+        codeRepo="git@gitlab.kang.com:devops/spring-boot-helloworld.git"
+        credential="gitlab-kang-key"
+        harborServer='harbor.kang.com'
+        projectName='spring-boot-helloworld'
+        imageUrl="${harborServer}/example/${projectName}"
+        imageTag="${BUILD_ID}"
+        //harborUserName="magedu"
+        //harborPassword="Magedu123"
+    }
+    stages {
+        stage('Source') {
+            steps {
+                git branch: 'main', credentialsId: "${credential}", url: "${codeRepo}"
+            }
+        }
+        stage('Test') {
+           steps {
+                //注意:不要修改hello()函数,否则会导致下面失败
+                sh 'mvn test'
+            }
+        }        
+        stage('Build') {
+            steps {
+                //sh 'mvn -B -DskipTests clean package'
+                 sh 'mvn clean package -Dmaven.test.skip=true'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build . -t "${imageUrl}:${imageTag}"'
+            }           
+        }
+        stage('Push Docker Image') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'login-harbor-passwd', \
+                        usernameVariable: 'harborUserName',passwordVariable: 'harborPassword')]) {
+                    //sh "echo ${harborPassword} | docker login -u ${env.harborUserName} --password-stdin ${harborServer}"
+                    sh "docker login -u ${env.harborUserName} -p ${harborPassword} ${harborServer}"
+                    sh "docker push ${imageUrl}:${imageTag}"
+                    echo "username=${env.harborUserName}"
+                    echo "password=${harborPassword}"
+                }
+            }
+        }
+        
+        stage('Run Docker ') {
+            steps {
+                sh 'ssh root@10.0.0.100 "docker rm -f ${projectName} ; docker run --name ${projectName} --restart always -p 80:8888 -d ${imageUrl}:${imageTag}"'
+                sh 'ssh root@10.0.0.101 "docker rm -f ${projectName} ; docker run --name ${projectName} --restart always -p 80:8888 -d ${imageUrl}:${imageTag}"'
+                //sh "docker -H 10.0.0.101 rm -f ${projectName} ; docker -H 10.0.0.101 run --name ${projectName} --restart always -p 80:8888 -d ${imageUrl}:${imageTag}"
+                //sh "docker -H 10.0.0.102 rm -f ${projectName} ; docker -H 10.0.0.102 run --name ${projectName} --restart always -p 80:8888 -d ${imageUrl}:${imageTag}"
+          
+            }   
+        }  		
+    }
+}
+```
+
+![image-20250225161536620](5day-png/32Pipeline凭据.png)
+
+### **参数选项和密码**
+
+声明式Pipeline中，parameters指令用于为Pipeline声明参数
+
+该指令用于pipeline之中，且常见于agent指令之后
+
+其功用与Freestyle Job上的参数类似
+
+**常用的参数类型有如下这些**
+
+- string
+
+  字符串类型的参数
+
+  例如: parameters { string(name: 'DEPLOY_ENV, defaultValue 'staging‘ ,description:'description demo'}}
+
+- text
+
+  文本类型的参数，支持多行文本
+
+  示例: parameters { text (name:'DEPLOY_TEXT,defaultValue:'One\nTwo\nThree\n',description:'description demo' )}
+
+- booleanParam
+
+  布尔型参数
+
+  示例: parameters { booleanParam(name:'DEBUG_BUILD', defaultValue: true,description:'description demo')}
+
+  值传递也是string类型
+
+- choice
+
+  选项型参数
+
+  示例: parameters { choice(name: 'CHOICES', choices: 'one' 'two', 'three'],description:'description demo' )}
+
+- password
+
+  密码参数
+
+  示例: parameters { password(name:'PASSWORD', defaultValue:'123456',description 'Ai secretpassword')}
+
+**注意:第一个执行PipleLine没有Build with Parameters的提示,第二次执行才会出现**
+
+```groovy
+pipeline {
+    agent any
+    parameters {
+        string(name: 'PERSON', defaultValue: 'Mr Jenkins', description: 'Who should I say hello to?')
+        text(name: 'BIOGRAPHY', defaultValue: '', description: 'Enter some information about the person')
+        booleanParam(name: 'TOGGLE', defaultValue: true, description: 'Toggle this value')
+        choice(name: 'CHOICE', choices: ['One', 'Two', 'Three'], description: 'Pick something')
+        password(name: 'PASSWORD', defaultValue: 'SECRET', description: 'Enter a password')
+    }
+    stages {
+        stage('Example') {
+            steps {
+                echo "Hello ${params.PERSON}"
+                echo "Biography: ${params.BIOGRAPHY}"
+                echo "Toggle: ${params.TOGGLE}"
+                echo "Choice: ${params.CHOICE}"
+                // Avoid printing password in logs
+                echo "Password is provided but hidden for security."
+            }
+        }
+    }
+}
+
+```
+
+### **交互输入实现确认和取消**
+
+input 指令支持中断当前任务,以待确认和取消
+
+input步骤是Pipeline与用户交互的接口，用于实现根据用户输入改变pipeline的行为遇到input步骤时，Pipeline会暂停下来并等待用户的响应
+
+input步骤是特殊的参数化pipeline的方法，它常用于实现简易的审批流程，或者是手动实施后续的步骤等;
+
+为了接收用户输入的不同数据，Jenkins提供了不同类型的参数
+
+input步骤默认打印出的表单是打印一条消息并为用户提供--个选择:Proceed（继续）或者Abort
+
+input步骤中，通过参数接收到的用户输入可以保存在变量中，而后进行调用
+
+变量作用域仅为当前stage，例如，下面示例中的userInput变量仅能于当前步骤中调用
+
+若要跨stage使用变量，则需要在pipeline代码外部先用def声明变量，而后再于stage中使用该变量;
+
+input步骤的可用参数
+
+- message，String类型
+
+  其内容将打印给用户，并要求用户选择Proceed或Abort
+
+  若input仅提供了该参数时，还可以省略message参数名称
+
+- ok (optional) ,String类型
+
+  用于自定义Proceed按钮的标签名称例如，下面的示例中，Proceed按钮的名称为“Yes"
+
+input message: '', ok: 'Yes'
+
+- id (optional)，String类型
+
+  每个input都有一个惟一的ID标识，用于生成专用的URL，以便于根据用户输入继续或中止pipeline <JENKINS_URL>/job/l[job_name]/[build_id]/input/[input_id]/
+
+  该URL可通过POST方法进行请求，后跟proceedEmpty表示空输入并继续，而abort则表示中止
+
+  未定义ID时，Jenkins将自动为input生成lD
+
+- parameters (optional)
+
+  要求用户手动输入一个或多个参数列表,即可在INPUT中嵌套参数选项
+
+  parameters指令支持的参数类型仅是input步骤支持的参数类型的-一个子集，因而，那些参数类型都会被input步骤所支持
+
+- submitter(optional) , String类型
+
+  可以进行后续操作的用户的ID或用户组列表，彼此间以逗号分隔，且前后不允许出现空格
+
+- submitterParameter (optional)，String类型
+
+  用于保存input步骤的实际操作者的用户名
+
+范例
+
+```groovy
+stage('User Confirmation') {
+    steps {
+        script {
+            def userInput = input(
+                message: "Should we continue?", // 交互提示信息
+                ok: "Yes, we should.", // 确认按钮文本
+                submitter: "user1,user2", // 允许提交的用户列表
+                parameters: [ // 交互输入的参数
+                    string(name: 'REASON', defaultValue: 'No reason', description: 'Why should we continue?')
+                ]
+            )
+            echo "User input received: ${userInput}"
+        }
+    }
+}
+
+```
+
+范例
+
+```groovy
+pipeline{
+    agent {
+       any
+    }
+	stages{
+        stage("get code"){
+            steps{
+                echo "git code from scm"
+            }
+        }
+        stage("build"){
+            steps{
+                input message: '确定执行吗？', ok: '确定'
+                echo "build code"
+            }
+        }
+        stage("package"){
+            steps{
+                echo "package code"
+            }
+        }
+        stage("deploy"){
+            steps{
+                echo "deploy package to nodes"
+            }
+        }
+    }
+}
+```
+
+![image-20250225163656361](5day-png/32Pipeline交互式.png)
+
+### **条件判断**
+
+```
+https://www.jenkins.io/doc/book/pipeline/syntax/#flow-control
+```
+
+对于pipeline来说，使用if语句或者try语句,或者when来进行条件的流程控制，这两种方式效果相似
+
+when是用在stage段中的指令，用于限定当前stage的运行条件
+
+when指令中至少要含有一个条件
+
+若同时定义了多个条件，它们之间的隐含关系为“与”，即必须同时满足，才会运行当前stage{}
+
+when也允许嵌套定义条件的逻辑操作: not、allOf和anyOf
+
+Jenkins内置支持的常用条件
+
+- branch:满足给定的分支模式时运行当前stage{}
+
+  格式为“branch pattern:, comnparator. ”，该指令仅适用于多分支流水线
+
+  equals :即完全相同，例如“branch equals : main”
+
+  glob:文件名路径格式的通配符，默认值，例如“branch glob: origin/ref/*”
+
+  regexp:正确表达式模式，例如“branch regexp: release-\d+
+
+- environment
+
+  给定的变量满足指定的值时，运行当前stage{}
+
+  格式: “environment name: , value:" 
+
+  示例: when {environment name: 'DEPLOY_IO', value: 'production'}
+
+- expression
+
+  给定的groovy表达式结果为true时，运行当前stage{}
+
+  表达式需要为布尔型，或者返回值为true或false的字符串
+
+  示例: expression {BRANCH_NAME ==~ /(production | staging)/ }
+
+- tag
+
+  给定的TAG_NAME匹配指定的模式时，运行当前stage{}
+
+  示例: when { tag "release-*"}
+
+- changeRequest
+
+  当前构建因某个指定的“change request（例如Pull Request或Merge Request)”触发时，运行当前分支
+
+  空的参数值，表示任意的change request均满足条件，例如when { changeRequest() }
+
+  支持使用过滤器属性，包括id, target, branch, fork, url, title, author, authorDisplayName和authorEmail
+
+  示例: when { changeRequest target: 'master'}
+
+  在过滤器属性上，还支持使用可选的comparator参数
+
+  示例: when { changeRequest authorEmail: "[ \w_-.]+@example.com", comparator: ’REGEXP’}
+
+- not:嵌套的条件结果为false时执行当前stage {}
+
+  示例: when { not { branch 'master' }}
+
+- allOf:嵌套的所有条件均为true执行当前stage
+
+  示例: when { allOfbranch 'master'; environment name: 'DEPLOY_TO', value: 'production'} }
+
+- anyOf:嵌套的条件至少有一个为true时执行当前stage{}
+
+  示例: when { anyOf{branch 'master'; branch 'staging' }}
+
+- triggeredBy
+
+  当前的构建Job由指定的Trigger触发时运行当前stage{}
+
+  示例: when { triggeredBy 'BuildUpstreamCause’ }
+
+- 在进入stage内的agent之前评估when条件
+
+  默认如果在stage定义了agent，则在进入该stage {}的agent后才会评估其内部的when条件
+
+  但也可以显式将beforeAgent选项的值设定为true来更改此默认行为，即先评估when条件，且结果为true时才进入agent
+
+- 在运行stage{}内的input之前评估when条件
+
+  默认情况下,如果在stage{}定义了input，则在运行该stage{}的input后才会评估其内部的when条件
+
+  但也可以显式将beforeInput选项的值设定为true来更改此默认行为，即先评估when条件，且结果为true时才执行input
+
+- 在运行stage{}内的options之前评估when条件
+
+  默认情况下,如果在stage{}定义了options，则在运行该stage{}的options后才会评估其内部的when条件
+
+  但也可以显式将beforeOptions选项的值设定为true来更改此默认行为，即先评估when条件，且结果为true时才执行options
+
+范例 分支捕获和异常捕获
+
+```groovy
+node {
+    stage('Branch Check') {
+        if (env.BRANCH_NAME == 'master') {
+            echo 'I only execute on the master branch'
+        } else {
+            echo 'I execute elsewhere'
+        }
+    }
+
+    stage('Error Handling') {
+        try {
+            sh 'exit 1' // 这里会触发异常
+        } catch (exc) {
+            echo 'Something failed, I should sound the klaxons!'
+            throw // 继续抛出异常，让 Jenkins 任务失败
+        }
+    }
+}
+```
+
+```bash
+#在if中使用的条件值，一般使用she11命令的执行后的状态返回值来进行获取，由于jenkinsfile的特殊性，普通she11命令的状态返回值必须以文件的方式落地，也就是说stdout的内容重定向到文件，在jenkins的sh语法中，需要开启 return status: true属性
+#格式如下
+result = sh returnstdout: true ,script: "<shell command>"
+result = sh(script: "<shell command>"，returnstdout: true)
+#默认情况下，sh命令的状态返回值是О或者非0，如果想要指定状态返回值的内容的话，可以使用如下格式:
+result = sh(script: "<shell command> && echo 'true' || echo 'false' " , returnstdout: true)
+```
+
+范例：when 条件
+
+```groovy
+pipeline {
+    agent none
+    stages {
+        stage('Example Build') {
+            agent any  // 这里需要指定 agent，否则会报错
+            steps {
+                echo 'Hello World'
+            }
+        }
+
+        stage('Example Deploy') {
+            agent any
+            when {
+                beforeInput true  // 先评估 when 条件，如果为 true 才进入 input
+                branch 'main' // 只有 main 分支才会执行
+            }
+            input {
+                message "Deploy to production?" // 用户确认框
+            }
+            steps {
+                echo 'Deploying'
+            }
+        }
+    }
+}
+```
+
+范例：参数化和when条件执行
+
+```groovy
+pipeline {
+    agent any
+    parameters {
+        booleanParam(name:'pushImage', defaultValue: 'true', description: 'Push Image to Harbor?')
+    }    
+    tools {
+        maven 'maven-3.8.7'
+    }
+    stages {
+        stage('Source') {
+            steps {
+                echo "source"
+            }
+        }
+        stage('Build') {
+            steps {
+                echo "Build"
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                echo "Build Docker image"
+            }           
+        }
+        stage('Push Docker Image') {
+           agent any
+           when {
+                expression { params.pushImage }
+                //expression { "${params.pushImage}" == 'true' }
+            }
+            steps {
+            	echo "Push"
+            }   
+        }
+        stage('Run Docker ') {
+            steps {
+				echo "run docker"
+            }   
+        }  		
+    }
+}
+```
+
+![image-20250225170843097](5day-png/32条件判断.png)
+
+### **并行**
+
+并行执行
+
+```
+pipeline {
+    agent any
+    stages {
+        stage( 'Deploy') {
+            parallel {
+                stage('deploy_proxy'){
+                    steps {
+                        echo "部署反向代理服务"
+                    }
+                }
+                stage('deploy app1') {
+                    steps {
+                        echo "部署deploy_app1应用"
+                    }
+                }
+                stage ('deploy app2'){
+                    stages {
+                        stage ('delete container') {
+                            steps {
+                                 echo "删除旧容器"
+                            }
+                        }
+                        stage('start container') {
+                            steps {
+                                echo "启动新容器"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+![image-20250225171305584](5day-png/32Pipeline并行.png)
+
+### **触发器**
+
+在Pipeline中实现GitLab trigger，注意：需要安装gitlab插件
+
+在Pipeline代码中配置GitLab Trigger会用到如下几个触发条件
+
+- triggerOnPush: GitLab仓库推送push事件时是否执行构建
+- triggerOnMergeRequest:GitLab仓库推送mergeRequest事件时，是否执行构建
+- branchFilterType:只有符合条件的分支才会被触发;必选配置，否则将无法实现触发，支持如下值
+  - NameBaseFilter:基于分支名进行过滤，多个分支名彼此间以逗号分隔
+  - RegexBaseFilter:基于正则表达式模式对分支名过滤
+  - All:所有分支都会被触发
+- includeBranchSpec:基于branchFilterType值，输入期望包括的分支的规则
+- excludeBranchSpec:基于branchFilterType值，输入期望排队的分支的规则
+- secretToken:在回调时使用的token
+
+GitLab触发器配置格式：
+
+```bash
+triggers {
+    gitlab(
+        triggerOnPush: false,  // 不在每次推送时触发
+        triggerOnMergeRequest: true,  // 合并请求触发构建
+        triggerOpenMergeRequestOnPush: "never",  // 不会自动创建合并请求
+        triggerOnNoteRequest: true,  // 允许通过评论触发构建
+        noteRegex: "Jenkins please retry a build",  // 通过评论触发构建
+        skipWorkInProgressMergeRequest: true,  // 跳过 WIP 合并请求
+        ciSkip: false,  // 禁止使用 [ci skip] 跳过构建
+        setBuildDescription: true,  // 自动设置构建描述
+        addNoteOnMergeRequest: true,  // 添加构建结果注释
+        addCiMessage: true,  // 添加 CI 消息
+        addVoteOnMergeRequest: true,  // 合并请求上添加投票
+        acceptMergeRequestOnSuccess: false,  // 构建成功时不自动接受合并请求
+        branchFilterType: "NameBasedFilter",  // 基于分支名称过滤
+        includeBranchesSpec: "release/*",  // 触发所有 release 分支
+        excludeBranchesSpec: "",  // 不排除任何分支
+        pendingBuildName: "Jenkins",  // 等待中的构建显示为 Jenkins
+        cancelPendingBuildsOnUpdate: false,  // 不取消等待中的构建
+        secretToken: "62dad2cd1d9ae62686ada8dc4cdOae66"  // 安全令牌
+    )
+}
+```
+
+#### **配置项说明**
+
+1. **`triggerOnPush: false`**
+   - 禁止在每次代码推送时触发构建。
+2. **`triggerOnMergeRequest: true`**
+   - 启用合并请求时触发构建，即每次创建或更新合并请求时都会触发构建。
+3. **`triggerOpenMergeRequestOnPush: "never"`**
+   - 在推送代码时 **不会** 自动创建合并请求。
+4. **`triggerOnNoteRequest: true`**
+   - 允许通过 **GitLab 评论** 来触发构建。
+5. **`noteRegex: "Jenkins please retry a build"`**
+   - 只有评论内容匹配该正则时（例如：`Jenkins please retry a build`），才会触发构建。
+6. **`skipWorkInProgressMergeRequest: true`**
+   - 如果合并请求是 "工作中"（WIP）状态，构建会被跳过。
+7. **`ciSkip: false`**
+   - 禁用 CI 跳过（即不允许在提交消息中添加 `[ci skip]` 来跳过构建）。
+8. **`setBuildDescription: true`**
+   - 在构建开始时自动设置构建的描述。
+9. **`addNoteOnMergeRequest: true`**
+   - 在 GitLab 合并请求上添加构建结果的注释。
+10. **`addCiMessage: true`**
+    - 将 CI 消息添加到 GitLab 的合并请求。
+11. **`addVoteOnMergeRequest: true`**
+    - 在合并请求上投票，通常用于集成测试状态。
+12. **`acceptMergeRequestOnSuccess: false`**
+    - 构建成功时不会自动接受合并请求。
+13. **`branchFilterType: "NameBasedFilter"`**
+    - 根据分支名称来过滤触发的条件。
+14. **`includeBranchesSpec: "release/qat"`**
+    - 仅对 `release/qat` 分支触发构建。
+15. **`excludeBranchesSpec: ""`**
+    - 没有指定排除分支，因此所有分支都会被考虑（不过你指定了 `includeBranchesSpec`，所以不会触发其他分支）。
+16. **`pendingBuildName: "Jenkins"`**
+    - 当构建处于等待状态时，在 GitLab 合并请求页面上显示的名字。
+17. **`cancelPendingBuildsOnUpdate: false`**
+    - 如果有新的提交推送， **不会取消正在等待的构建**。
+18. **`secretToken: "62dad2cd1d9ae62686ada8dc4cdOae66"`**
+    - 用于验证 GitLab 与 Jenkins 的通信安全性。
+
+范例
+
+```groovy
+pipeline {
+    agent any
+    tools {
+        maven 'maven-3.8.7'
+    }
+    triggers {
+        gitlab(triggerOnPush: true,
+            acceptMergeRequestOnSuccess: true,
+            //triggerOnMergeRequest: true,
+            branchFilterType: 'All',
+            secretToken: '62dad2cd1d9ae62686ada8dc4cdOae66')
+        }
+    parameters {
+        booleanParam(name: "PUSH", defaultValue: true)
+        }
+    environment {
+        GitRepo="http://gitlab.kang.com/devops/spring-boot-helloWorld.git"
+        credential="gitlab-kang-passeord"
+        HarborServer='harbor.kang.com'        
+        ImageUrl="devops/spring-boot-helloworld"
+        ImageTag="latest"
+        }
+    stages {
+        stage('Source'){
+            steps { 
+                git branch: 'main', credentialsId: "${credential}", url: "${GitRepo}"
+                //git branch: 'main', url: "${GitRepo}"
+            }
+        }
+    }
+}
+```
+
+在gitlab上配置wobhooks
+
+```
+http://gitlab.kang.com/devops/spring-boot-helloWorld.git
+62dad2cd1d9ae62686ada8dc4cdOae66
+```
+
+### **构建后操作**
+
+流水线也提供了构建后的动作，常可用于消息通知
+
+这个动作就在post 配置段中
+
+post部分定义了一个或多个在管道或阶段运行完成后运行的附加步骤(取决于post 部分在管道中的位置)。
+
+post可以支持以下任何后置条件块:
+
+always、changed、fixed、regression、aborted、 failure、successunstable、 unsuccessful、cleanup。
+
+这些条件块允许根据管道或阶段的完成状态在每个条件内执行步骤。条件块按如下所示的顺序执行。格式说明
+
+```bash
+#在stages同级别的位置，添加一个post配置段
+post {
+	always {
+		echo '任执行结束后执行此操作'
+	}
+}
+```
+
+**邮件通知**
+
+```groovy
+pipeline {
+    agent any
+    parameters {
+        booleanParam(name:'pushImage', defaultValue: 'true', description: 'Push Image to Harbor?')
+    }    
+    tools {
+        maven 'maven-3.8.7'
+    }
+    stages {
+        stage('Source') {
+            steps {
+                echo "source"
+            }
+        }
+        stage('Build') {
+            steps {
+                echo "Build"
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                echo "Build Docker image"
+            }           
+        }
+        stage('Push Docker Image') {
+           agent any
+           when {
+                 expression { params.pushImage }
+                //expression { "${params.pushImage}" == 'true' }
+            }
+            steps {
+            	echo "Push"
+            }   
+        }
+        stage('Run Docker ') {
+            steps {
+				echo "run docker"
+				//sh 'false'
+            }   
+        }
+    }
+    post {
+        always {
+            mail to: 'zhaokang2004@outlook.com',
+            subject: "Status of pipeline: ${currentBuild.fullDisplayName}",
+            body: "${env.BUILD_URL} has result ${currentBuild.result}"
+        }
+    }  
+}
+```
+
+钉钉和微信
+
+```bash
+    post{
+        success{
+            dingtalk(
+                robot: 'dingtalk',
+                type: 'TEXT',
+                text: [
+                    "Status of pipeline: ${currentBuild.fullDisplayName}",
+                    "${env.BUILD_URL} has result ${currentBuild.result}."
+                ]
+            )
+        failure{
+            qyWechatNotification failNotify: true, webhookUrl: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=58ac51d5-b10a-4637-8658-88ff1b8b2afa'
+        }
+    }
+```
+
+ 范例：微信
+
+```
+pipeline {
+    agent any
+    parameters {
+        booleanParam(name:'pushImage', defaultValue: 'true', description: 'Push Image to Harbor?')
+    }    
+    tools {
+        maven 'maven-3.8.7'
+    }
+    stages {
+        stage('Source') {
+            steps {
+                echo "source"
+            }
+        }
+        stage('Build') {
+            steps {
+                echo "Build"
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                echo "Build Docker image"
+            }           
+        }
+        stage('Push Docker Image') {
+           agent any
+           when {
+                 expression { params.pushImage }
+                //expression { "${params.pushImage}" == 'true' }
+            }
+            steps {
+            	echo "Push"
+            }   
+        }
+        stage('Run Docker ') {
+            steps {
+				echo "run docker"
+				//sh 'false'
+            }   
+        }
+    }
+    post {
+        always {
+           qyWechatNotification failNotify: true, webhookUrl: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=58ac51d5-b10a-4637-8658-88ff1b8b2afa'
+        }
+    }  
+}
+```
+
+
+
+
+
+
+
+### Pipeline script from SCM
+
+![image-20250225183819311](C:/Users/zhaok/AppData/Roaming/Typora/typora-user-images/image-20250225183819311.png)
+
+![image-20250225183954142](5day-png/32Pipeline script from SCM2.png)
+
+## Jenkins 权限管理
+
+**创建新用户**
+
+Jenkins—系统管理—管理用户— 新建用户
+
+### 安装插件
+
+Role-based Authorization Strategy
+
+![image-20250225184823787](5day-png/32jenkins权限管理.png)
+
+ 
+
+### 角色管理
+
+![image-20250225185614524](5day-png/32角色管理.png)
+
+![image-20250225185649718](5day-png/32角色管理1.png)
+
+
+
+### 项目管理
+
+![image-20250225185915626](5day-png/32项目管理1.png)
+
+![image-20250225190147620](5day-png/32项目管理2.png)
+
+![image-20250225190358622](5day-png/32项目管理3.png)
+
+![image-20250225190327721](5day-png/32项目管理4.png)
+
+![image-20250225190451603](5day-png/32项目管理5.png)
+
+## 视图管理
+
+![image-20250225190959962](5day-png/32视图管理.png)
+
+![image-20250225190936732](5day-png/32视图管理1.png)
+
+### **Pipeline** **视图**
+
+安装 build Pipeline 插件
+
+![image-20250225191421672](5day-png/32pipeline视图.png)
+
+
+
+
+
+## 代码质量检测 SonarQube
+
+SonarQube 是一个开源平台，用于管理源代码的质量。
+
+Sonar 不只是一个质量数据报告工具，更是代码质量管理平台。
+
+支持的语言包括：Java、Go、Python、PHP、C、C++C#、C#、JavaScripts、Scala、HTML、PL/SQL、Swift、Ruby等29种语言。
+
+SonarQube是一种自动代码审查工具，用于检测代码中的错误漏洞和代码异味，它集成到现有的工作流
+
+程,以便在项目分支和拉取(PR)请求之间进行连续的代码检查
+
+SonarQube 支持多种插件,实现和 Jenkins 等 CICD 工具的集成
+
+**七个维度检测代码质量**
+
+1. 可维护性（maintainability）
+
+   所谓“代码易维护”就是指，在不破坏原有代码设计、不引入新的 bug 的情况下，能够快速地修改或者添
+
+加代码。
+
+2. 可读性（readability）
+
+   在编写代码的时候，时刻要考虑到代码是否易读、易理解。除此之外，代码的可读性在非常大程度上会
+
+影响代码的可维护性。
+
+​		看代码是否符合编码规范、命名是否达意、注释是否详尽、函数是否长短合适、模块划分是否清晰、是
+
+否符合高内聚低耦合等等。
+
+​		code review 是一个很好的测验代码可读性的手段
+
+3. 可扩展性（extensibility）
+
+   表示代码应对未来需求变化的能力。跟可读性一样，代码是否易扩展也很大程度上决定代码是否易维
+
+护.
+
+​		代码的可扩展性表示，在不修改或少量修改原有代码的情况下，通过扩展的方式添加新的功能代码
+
+4. 灵活性（flexibility）
+
+   如果一段代码易扩展、易复用或者易用，都可以称这段代码写得比较灵活
+
+5. 简洁性（simplicity）
+
+   KISS ( Keep It Simple, Stupid)原则:尽量保持代码简单。代码简单、逻辑清晰，也就意味着易读、易维护.
+
+6. 可复用性（reusability）
+
+   代码的可复用性可以简单地理解为，尽量减少重复代码的编写，复用已有的代码
+
+7. 可测试性（testability）
+
+   代码可测试性的好坏，能从侧面上非常准确地反应代码质量的好坏。代码的可测试性差，比较难写单元测试，那基本上就能说明代码设计得有问题
+
+**SonarQube** **架构**
+
+基于C/S结构
+
+**SonarQube** **四个主要组件**
+
+![image-20250225191925794](5day-png/32SonarQube构架.png)
+
+- SonarQube Server 包括三个主要部分
+  - Web Server: UI 界面
+  - Search Server :为UI提供搜索功能,基于 ElasticSearch 实现
+  - Compute Engine Server：处理代码分析报告,并将之存储到 SonarQube Database
+- SonarQube Database: 负责存储 SonarQube 的配置，以及项目的质量快照等
+- SonarQube Plugin: 可以在 SonarQube Server 安装丰富的插件，实现支持各种开发语言、SCM、集成、身份验证和治理等功能
+- Code analysis Scanners: 代码扫描器,是SonarQube Server的客户端, 将代码扫描后得出报告提交给 SonarQube Server
+
+**SonarQube** **版本说明**
+
+SonarQube 分为: 社区版,开发版,企业版和数据中心版
+
+其中只有社区版是开源免费的
+
+**SonarQube** **分两种版本****: LTS** **和非** **LTS** **版**
+
+SonarQube 的 LTS (Long Term Support长期支持版本) 在其约 **18** **个月**的生命周期内提供组织稳定性和
+
+错误修复。
+
+**LTS** **新版称为** **LTA Long Term Active version**
+
+生产建议使用 LTS 版
+
+官方LTS版本说明
+
+```
+https://www.sonarqube.org/downloads/lts/
+```
+
+```powershell
+LTS 版有如下版本
+9.9
+8.9
+7.9
+6.7
+5.6
+4.5
+3.7
+```
+
+各种版本下载
+
+```
+https://www.sonarsource.com/products/sonarqube/downloads/historical-downloads/
+https://www.sonarqube.org/downloads/
+```
+
+**安装环境准备**
+
+**硬件要求**
+
+硬件需求
+
+- 小型应用至少需要2GB的RAM
+- 磁盘空间取决于SonarQube分析的代码量
+- 必须安装在读写性能较好的磁盘, 存储数据的目录中包含ElasticSearch的索引,服务器启动并运行时，将会在该索引上进行大是I/O操作
+- 不支持32位操作系统
+
+**系统内核优化**
+
+新版要求
+
+- vm.max_map_count is greater than or equal to 524288
+- fs.file-max is greater than or equal to 131072
+- the user running SonarQube can open at least 131072 file descriptors
+- the user running SonarQube can open at least 8192 threads
+
+You can set them dynamically for the current session by running the following commands as root :
+
+```bash
+#mv.max_map_count 用于限制一个进程可以拥有的VMA(虚拟内存区域)的数量,Ubuntu22.04默认值65530
+sysctl -w vm.max_map_count=524288
+
+#设置系统最大打开的文件描述符数
+sysctl -w fs.file-max=131072
+
+#每个用户可以打开的文件描述符数
+ulimit -n 131072
+
+#每个用户可以打开的线程数
+ulimit -u 8192
+```
+
+注意: 必须修改内核限制，否则在启动时会报以下错误
+
+**创建用户和修改内核配置**
+
+```bash
+[root@ubuntu2404 ~]#sysctl  vm.max_map_count
+vm.max_map_count = 1048576
+[root@ubuntu2404 ~]#sysctl fs.file-max
+fs.file-max = 9223372036854775807
+
+[root@ubuntu2404 ~]#ulimit -a
+real-time non-blocking time  (microseconds, -R) unlimited
+core file size              (blocks, -c) 0
+data seg size               (kbytes, -d) unlimited
+scheduling priority                 (-e) 0
+file size                   (blocks, -f) unlimited
+pending signals                     (-i) 15184
+max locked memory           (kbytes, -l) 495120
+max memory size             (kbytes, -m) unlimited
+open files                          (-n) 1024
+pipe size                (512 bytes, -p) 8
+POSIX message queues         (bytes, -q) 819200
+real-time priority                  (-r) 0
+stack size                  (kbytes, -s) 8192
+cpu time                   (seconds, -t) unlimited
+max user processes                  (-u) 15184
+virtual memory              (kbytes, -v) unlimited
+file locks                          (-x) unlimited
+
+#Ubuntu22.04，此文件可不改,可选
+[root@SonarQube-Server ~]# vim /etc/security/limits.conf
+sonarqube - nofile 131072
+sonarqube - nproc  8192
+
+#如果以systemd 运行SonarQube,需要在service文件配置
+[servcie]
+.....
+LimitNOFILE=131072
+LimitNPROC=8192
+......
+```
+
+**数据库环境依赖说明**
+
+```
+https://docs.sonarqube.org/7.9/requirements/requirements/
+```
+
+注意：SonarQube 7.9 不再支持MySQL，可以选择安装 PostgreSQL
+
+**官方如下说明: 7.9.x 版本不再支持MySQL**
+
+```
+https://docs.sonarqube.org/7.9/setup/upgrade-notes/
+```
+
+**SonarQube 7.9** **以上版本不再支持** **java 11**
+
+![image-20250225193605064](5day-png/32SonarQube java.png)
+
+安装
+
+```bash
+#安装JAVA
+[root@ubuntu2204 ~]#apt update && apt -y install openjdk-17-jdk
+
+#创建用户
+[root@ubuntu2204 ~]#useradd -s /bin/bash -m sonarqube
+[root@ubuntu2204 ~]#id sonarqube
+uid=1001(sonarqube) gid=1001(sonarqube) groups=1001(sonarqube)
+
+#安装PostgreSQL
+[root@ubuntu2204 ~]#apt list postgresql
+Listing... Done
+postgresql/jammy-proposed 14+238ubuntu0.1 all
+N: There is 1 additional version. Please use the '-a' switch to see it
+[root@ubuntu2204 ~]#apt -y install postgresql
+
+#安装时自动生成用户postgres
+[root@ubuntu2204 ~]#id postgres
+uid=115(postgres) gid=121(postgres) groups=121(postgres),120(ssl-cert)
+
+#默认监听在127.0.0.1的5432端口，需要修改监听地址
+[root@ubuntu2204 ~]#ss -ntlp|grep post
+LISTEN 0      244        127.0.0.1:5432       0.0.0.0:*    users:(("postgres",pid=129134,fd=5))    
+
+#修改监听地址支持远程连接（如果sonarqube和PostgreSQL在同一台主机，可不做修改）
+[root@ubuntu2204 ~]#vim /etc/postgresql/14/main/postgresql.conf 
+listen_addresses = '*' 或者 '0.0.0.0'
+
+[root@ubuntu2204 ~]#vim /etc/postgresql/14/main/pg_hba.conf
+# IPv4 local connections:
+host    all             all             127.0.0.1/32            scram-sha-256
+host    all             all             0.0.0.0/0               scram-sha-256
+
+[root@ubuntu2204 ~]#systemctl restart postgresql
+
+```
+
+**创建数据库和用户授权**
+
+```bash
+[root@ubuntu2204 ~]#su - postgres 
+#登录postgresql数据库
+postgres@ubuntu2204:~$ psql -U postgres 
+psql (14.15 (Ubuntu 14.15-0ubuntu0.22.04.1))
+Type "help" for help.
+#安全起见,修改数据库管理员postgres用户的密码,可选
+postgres=# ALTER USER postgres WITH ENCRYPTED PASSWORD '123456';
+ALTER ROLE
+
+#创建用户和数据库并授权
+postgres=# CREATE DATABASE sonarqube OWNER sonarqube;
+CREATE DATABASE
+postgres=# GRANT ALL PRIVILEGES ON DATABASE sonarqube TO sonarqube;
+GRANT
+# OWNER sonarqube可选
+postgres=# CREATE DATABASE sonarqube OWNER sonarqube;
+CREATE DATABASE
+
+#查看数据库是否创建,相当于MySQL中 show databases;
+postgres=# \l
+                                  List of databases
+   Name    |   Owner   | Encoding |   Collate   |    Ctype    |   Access privileges   
+-----------+-----------+----------+-------------+-------------+-----------------------
+ postgres  | postgres  | UTF8     | en_US.UTF-8 | en_US.UTF-8 | 
+ sonarqube | sonarqube | UTF8     | en_US.UTF-8 | en_US.UTF-8 | 
+ template0 | postgres  | UTF8     | en_US.UTF-8 | en_US.UTF-8 | =c/postgres          +
+           |           |          |             |             | postgres=CTc/postgres
+ template1 | postgres  | UTF8     | en_US.UTF-8 | en_US.UTF-8 | =c/postgres          +
+           |           |          |             |             | postgres=CTc/postgres
+(4 rows)
+
+```
+
+
+
+**下载sonarQube**
+
+```
+https://www.sonarqube.org/downloads/
+https://www.sonarsource.com/products/sonarqube/downloads/historical-downloads/
+```
+
+```bash
+[root@ubuntu2204 apps]#ls
+sonarqube-9.9.8.100196.zip
+[root@ubuntu2204 apps]#unzip sonarqube-9.9.8.100196.zip
+[root@ubuntu2204 apps]#ln -s /data/apps/sonarqube-9.9.8.100196 /usr/local/sonarqube
+#设置属性,注意：/usr/local/sonarqube/ 最后有斜线 /
+[root@ubuntu2204 sonarqube]#chown -R sonarqube:sonarqube /usr/local/sonarqube/
+```
+
+**设置** **SonarQube** **连接数据库**
+
+```bash
+#修改SonarQube配置用于连接postgresql数据库
+[root@ubuntu2204 apps]#vim /usr/local/sonarqube/conf/sonar.properties
+#修改连接postgresql数据库的账号和密码,和前面的配置必须匹配
+sonar.jdbc.username=sonarqube
+sonar.jdbc.password=123456
+
+#修改数据库相关的信息，这里必须和此前配置的postgresql内容相匹配，其中localhost为DB服务器的地址，而sonarqube为数据库名称
+sonar.jdbc.url=jdbc:postgresql://localhost/sonarqube
+#默认配置如下，必须删除?currentSchema=my_schema
+##sonar.jdbc.url=jdbc:postgresql://localhost/sonarqube?currentSchema=my_schema
+
+#设置 SonarQube 的提供的 Web Server监听的地址和端口,可选
+sonar.web.host=0.0.0.0 #此为默认值,可不做修改
+sonar.web.port=9000    #此为默认值,可不做修改
+
+#按需要修改SonarQube存储数据的目录位置，以下两个目录为相对路径，相对于sonarqube的安装目录，也可以使用绝对路径
+sonar.path.data=data   #默认值,可不做修改
+sonar.path.temp=temp   #默认值,可不做修改
+```
+
+**启动SonarQube**
+
+**注意:SonarQube需要调用Elasticsearch，而且默认需要使用普通用户启动，如果以 root 启动会报错**
+
+```bash
+#以sonarqube用户身份启动服务
+#方法1:
+[root@ubuntu2204 sonarqube]#su - sonarqube 
+[sonarqube@ubuntu2204 ~]$/usr/local/sonarqube/bin/linux-x86-64/sonar.sh start
+/usr/bin/java
+Starting SonarQube...
+Started SonarQube.
+
+#方法2：或者执行下面启动SonarQube
+[root@SonarQube-Server ~]#su - sonarqube -c '/usr/local/sonarqube/bin/linux-x86-64/sonar.sh start'
+
+#查看状态
+[sonarqube@ubuntu2204 ~]$/usr/local/sonarqube/bin/linux-x86-64/sonar.sh status
+/usr/bin/java
+Removed stale pid file: ./SonarQube.pid
+SonarQube is not running.
+
+#查看是否9000/tcp端口
+[root@ubuntu2404 ~]#ss -tnulp | grep java
+tcp   LISTEN 0      4096   [::ffff:127.0.0.1]:9001             *:*    users:(("java",pid=10592,fd=81))         
+tcp   LISTEN 0      25                      *:9000             *:*    users:(("java",pid=10741,fd=12))         
+tcp   LISTEN 0      4096   [::ffff:127.0.0.1]:44193            *:*    users:(("java",pid=10592,fd=79))     
+```
+
