@@ -3738,3 +3738,280 @@ tcp   LISTEN 0      25                      *:9000             *:*    users:(("j
 tcp   LISTEN 0      4096   [::ffff:127.0.0.1]:44193            *:*    users:(("java",pid=10592,fd=79))     
 ```
 
+
+
+**无法启动的主要的可能原因**
+
+- 用户和权限
+- java 版本不对或没有安装
+- 内核参数没有优化
+- 数据库及权限
+
+
+
+### 创建service文件
+
+先停止sonarqube
+
+```bash
+[root@ubuntu2404 ~]#su - sonarqube 
+[sonarqube@ubuntu2404 sonarqube]$bin/linux-x86-64/sonar.sh stop
+/usr/bin/java
+Gracefully stopping SonarQube...
+Stopped SonarQube.
+```
+
+```bash
+[root@ubuntu2404 ~]#vim /usr/lib/systemd/system/sonarqube.service
+[Unit]
+Description=SonarQube service
+After=syslog.target network.target
+[Service]
+Type=simple
+User=sonarqube
+Group=sonarqube
+PermissionsStartOnly=true
+ExecStart=/usr/bin/nohup /usr/bin/java -Xms32m -Xmx32m -Djava.net.preferIPv4Stack=true -jar /usr/local/sonarqube/lib/sonar-application-9.9.8.100196.jar
+#ExecStart=/usr/bin/nohup /usr/bin/java -Xms32m -Xmx32m -
+Djava.net.preferIPv4Stack=true -jar /usr/local/sonarqube/lib/sonar-application-
+9.9.7.96285.jar
+#ExecStart=/usr/bin/nohup /usr/bin/java -Xms32m -Xmx32m -
+Djava.net.preferIPv4Stack=true -jar /usr/local/sonarqube/lib/sonar-application-
+8.9.2.46101.jar
+#ExecStart=/usr/bin/nohup /usr/bin/java -Xms32m -Xmx32m -
+Djava.net.preferIPv4Stack=true -jar /usr/local/sonarqube/lib/sonar-application-7.9.6.jar
+StandardOutput=syslog
+LimitNOFILE=131072
+TimeoutStartSec=5
+Restart=always
+[Install]
+WantedBy=multi-user.target
+
+[root@ubuntu2404 ~]#systemctl daemon-reload
+[root@ubuntu2404 ~]#systemctl enable --now sonarqube.service
+[root@ubuntu2404 ~]#systemctl status sonarqube.service 
+```
+
+### 登录Web页面
+
+**默认用户名和密码都是** **admin**
+
+**安装中文支持**
+
+中文插件
+
+```
+Chinese PackLocalization
+```
+
+安装完后,点 Restart Server 重启服务
+
+查看多了一个文件
+
+```bash
+[root@ubuntu2404 ~]#ls /usr/local/sonarqube/extensions/plugins/
+README.txt  sonar-l10n-zh-plugin-9.9.jar
+```
+
+
+
+插件可以在github上找到最新版本
+
+```
+https://github.com/SonarSource
+```
+
+
+
+### 权限管理
+
+### 允许匿名访问
+
+新版默认取消了匿名用户访问,可以在下面配置中打开匿名访问即关闭认证
+
+![image-20250226195856475](5day-png/32Sonarqube权限管理.png)
+
+**关闭上面开关后还要打开下面的两个选项**
+
+![image-20250226200202771](5day-png/32Sonarqube权限管理1.png)
+
+
+
+### **不允许匿名访问**
+
+如果不允许匿名访问,就需要给 Jenkins 创建访问sonarqube 所使用的用户的访问令牌
+
+可以创建新用户或使用默认的admin用户
+
+**新建用户并授权**
+
+- 在SonarQube上创建用户账号（不建议使用admin账号）
+
+  配置 →权限 →用户
+
+- 为用户账号赋予相应的权限，例如执行分析和置备项目
+
+  配置 →权限 →全局权限
+
+创建jenkins用户
+
+![image-20250226201617339](5day-png/32Sonarqube权限管理4.png)
+
+对 jenkin 用户创建 token
+
+![image-20250226201004846](5day-png/32Sonarqube权限管理2.png)
+
+**生成token令牌**
+
+![image-20250226201314126](5day-png/32Sonarqube权限管理3.png)
+
+```
+squ_4a00c1e42a4ec29e17e60eab4ed6bd31a71d89a0
+```
+
+给用户分配置"执行分析"和"置备项目"权限
+
+![image-20250226201709248](5day-png/32Sonarqube权限管理5.png)
+
+
+
+### **部署代码扫描器** **sonar-scanner**
+
+**sonar-scanner 安装方法1：手动下载安装**
+
+下载地址
+
+```bash
+https://docs.sonarqube.org/latest/analyzing-source-code/scanners/sonarscanner/
+https://binaries.sonarsource.com/?prefix=Distribution/sonar-scanner-cli/
+https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/
+```
+
+```
+[root@ubuntu2404 ~]#wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-7.0.2.4839-linux-x64.zip
+```
+
+**下载和配置较新的版本并配置**
+
+```bash
+[root@ubuntu2404 ~]#wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-7.0.2.4839-linux-x64.zip
+[root@ubuntu2404 ~]#mv sonar-scanner-cli-7.0.2.4839-linux-x64.zip /usr/local/src
+[root@ubuntu2404 ~]#cd /usr/local/src
+[root@ubuntu2404 local]#ls /src
+sonar-scanner-cli-7.0.2.4839-linux-x64.zip
+[root@ubuntu2404 local]#cd src/
+[root@ubuntu2404 src]#unzip src/sonar-scanner-cli-7.0.2.4839-linux-x64.zip 
+[root@ubuntu2404 src]#ls
+sonar-scanner-7.0.2.4839-linux-x64  sonar-scanner-cli-7.0.2.4839-linux-x64.zip
+[root@ubuntu2404 src]#ln -s /usr/local/src/sonar-scanner-7.0.2.4839-linux-x64 /usr/local/sonar-scanner
+[root@ubuntu2404 src]#ls ..
+bin  etc  games  include  lib  man  sbin  share  sonar-scanner  src
+
+#查看版本，无需安装java
+[root@ubuntu2404 src]#/usr/local/sonar-scanner/jre/bin/java --version
+openjdk 17.0.13 2024-10-15
+OpenJDK Runtime Environment Temurin-17.0.13+11 (build 17.0.13+11)
+OpenJDK 64-Bit Server VM Temurin-17.0.13+11 (build 17.0.13+11, mixed mode, sharing)
+
+[root@ubuntu2404 sonar-scanner]#ln -s /usr/local/sonar-scanner/bin/sonar-scanner /usr/local/bin
+```
+
+范例：根据上面创建用户和token信息修改sonar-scanner的配置文件
+
+```bash
+[root@ubuntu2404 src]#cat /usr/local/sonar-scanner/conf/sonar-scanner.properties
+# Configure here general information about the environment, such as the server connection details for example
+# No information about specific project should appear here
+
+#----- SonarQube server URL (default to SonarCloud)
+#sonar.host.url=https://mycompany.com/sonarqube
+
+#sonar.scanner.proxyHost=myproxy.mycompany.com
+#sonar.scanner.proxyPort=8002
+#指向sonarqube服务器的地址和端口
+sonar.host.url=http://sonarqube.kang.com:9000 
+sonar.sourceEncoding=UTF-8
+
+#如果登录sonarqube server需要验证，还要加下面两行sonarqube的预先创建的用户信息
+#登录sonarqube服务器的验证信息
+
+#方式1：基于用户名和密码
+#sonar.login=admin
+#sonar.password=123456
+#sonar.login=jenkins
+#密码方式未来会淘汰
+#sonar.password=123456
+
+#方式2：建议使用Token方式
+sonar.login=squ_4a00c1e42a4ec29e17e60eab4ed6bd31a71d89a0
+```
+
+```
+https://docs.sonarsource.com/sonarqube-server/latest/analyzing-source-code/scanners/sonarscanner/
+```
+
+```bash
+[root@ubuntu2404 ginweb]#sonar-scanner 
+21:02:10.846 INFO  Scanner configuration file: /usr/local/src/sonar-scanner-7.0.2.4839-linux-x64/conf/sonar-scanner.properties
+21:02:10.860 INFO  Project root configuration file: NONE
+21:02:10.897 INFO  SonarScanner CLI 7.0.2.4839
+21:02:10.902 INFO  Java 17.0.13 Eclipse Adoptium (64-bit)
+21:02:10.908 INFO  Linux 6.8.0-48-generic amd64
+21:02:10.984 INFO  User cache: /root/.sonar/cache
+21:02:15.364 INFO  Communicating with SonarQube Server 9.9.8.100196
+21:02:16.753 INFO  Load global settings
+21:02:17.273 INFO  Load global settings (done) | time=522ms
+21:02:17.280 INFO  Server id: 86E1FA4D-AZU9eJm08VCYutpXTM7F
+21:02:17.294 INFO  User cache: /root/.sonar/cache
+21:02:17.306 INFO  Load/download plugins
+21:02:17.306 INFO  Load plugins index
+21:02:17.791 INFO  Load plugins index (done) | time=485ms
+21:02:18.125 INFO  Plugin [l10nzh] defines 'l10nen' as base plugin. This metadata can be removed from manifest of l10n plugins since version 5.2.
+21:02:23.689 INFO  Load/download plugins (done) | time=6384ms
+21:02:25.786 INFO  Process project properties
+21:02:25.821 INFO  EXECUTION FAILURE
+21:02:25.828 INFO  Total time: 14.990s
+21:02:25.830 ERROR Error during SonarScanner CLI execution
+21:02:25.831 ERROR You must define the following mandatory properties for 'Unknown': sonar.projectKey
+21:02:25.835 ERROR 
+21:02:25.835 ERROR Re-run SonarScanner CLI using the -X switch to enable full debug logging.
+```
+
+错误解决方法
+
+方法一
+
+```bash
+[root@ubuntu2404 ginweb]#cat sonar-project.properties 
+# must be unique in a given SonarQube Server instance
+sonar.projectKey=jinweb
+
+# --- optional properties ---
+
+# defaults to project key
+#sonar.projectName=My project
+# defaults to 'not provided'
+#sonar.projectVersion=1.0
+ 
+# Path is relative to the sonar-project.properties file. Defaults to .
+#sonar.sources=.
+ 
+# Encoding of the source code. Default is default system encoding
+#sonar.sourceEncoding=UTF-8
+```
+
+方法二
+
+```bash
+#通过选项实现，无需配置文件sonar-project.properties
+[root@jenkins spring-boot-helloWorld]#sonar-scanner -Dsonar.projectName=myapp -Dsonar.projectKey=myapp -Dsonar.sources=./ -Dsonar.java.binaries=./ -Dsonar.login=<token>
+```
+
+
+
+```
+[root@ubuntu2404 ginweb]#sonar-scanner
+```
+
+
+
