@@ -10543,19 +10543,19 @@ data_volume: /data/harbor
 [root@ubuntu2404 harbor]#mkdir /data/harbor -p
 [root@ubuntu2404 harbor]#bash install.sh 
 [root@ubuntu2404 harbor]#cat /lib/systemd/system/harbor.service 
- [Unit]
- Description=Harbor
- After=docker.service systemd-networkd.service systemd-resolved.service
- Requires=docker.service
- Documentation=http://github.com/vmware/harbor
- [Service]
- Type=simple
- Restart=on-failure
- RestartSec=5
- ExecStart=/usr/bin/docker-compose -f  /usr/local/harbor/docker-compose.yml up
- ExecStop=/usr/bin/docker-compose -f /usr/local/harbor/docker-compose.yml down
- [Install]
- WantedBy=multi-user.target
+[Unit]
+Description=Harbor
+After=docker.service systemd-networkd.service systemd-resolved.service
+Requires=docker.service
+Documentation=http://github.com/vmware/harbor
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=5
+ExecStart=/usr/bin/docker-compose -f  /usr/local/harbor/docker-compose.yml up
+ExecStop=/usr/bin/docker-compose -f /usr/local/harbor/docker-compose.yml down
+[Install]
+WantedBy=multi-user.target
 
 [root@ubuntu2404 harbor]#systemctl daemon-reload 
 [root@ubuntu2404 harbor]#systemctl enable harbor.service 

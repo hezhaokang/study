@@ -3645,13 +3645,16 @@ postgres=# ALTER USER postgres WITH ENCRYPTED PASSWORD '123456';
 ALTER ROLE
 
 #创建用户和数据库并授权
+postgres=# CREATE USER sonarqube WITH ENCRYPTED PASSWORD '123456';
+CREATE ROLE
+# OWNER sonarqube可选
 postgres=# CREATE DATABASE sonarqube OWNER sonarqube;
 CREATE DATABASE
 postgres=# GRANT ALL PRIVILEGES ON DATABASE sonarqube TO sonarqube;
 GRANT
-# OWNER sonarqube可选
-postgres=# CREATE DATABASE sonarqube OWNER sonarqube;
-CREATE DATABASE
+#前面如果已经指定数据库的OWNER,则可以不执行下面命令,可选
+postgres=# ALTER DATABASE sonarqube OWNER TO sonarqube;
+ALTER DATABASE
 
 #查看数据库是否创建,相当于MySQL中 show databases;
 postgres=# \l
@@ -4007,11 +4010,678 @@ sonar.projectKey=jinweb
 [root@jenkins spring-boot-helloWorld]#sonar-scanner -Dsonar.projectName=myapp -Dsonar.projectKey=myapp -Dsonar.sources=./ -Dsonar.java.binaries=./ -Dsonar.login=<token>
 ```
 
-
-
 ```
 [root@ubuntu2404 ginweb]#sonar-scanner
 ```
 
 
 
+### **Jenkins** **和** **SonarQube** **集成实现代码扫描**
+
+<img src="5day-png/32Jenkins 和 SonarQube 集成实现代码扫描.png" alt="image-20250227102234191" style="zoom:50%;" />
+
+Jenkins借助于SonarQube Scanner插件将SonarQube提供的代码质量检查能力集成到pipeline上,从而确保质量阈检查失败时，能够避免继续进行后续的操作，例如发布等
+
+通常的流程如下
+
+- Jenkins Pipeline启动
+- SonarQube Scanner分析代码,并将报告发送至SonarQubeServer
+- SonarQube Server分析代码检测的结果是否符合预定义的质量阈
+- SonarQube Server将通过(passed)或者失败（failed)的结果发送回Jenkins上的SonarQube Scanner插件暴露的 Webhook
+- 质量阈相关的阶段成功通过或可选地失败时Jenkins pipeline继续后面的Stage,否则pipeline将终止
+
+### **SonarQube** **质量阈**
+
+- 质量阙是一组预定义的评估条件
+- 代码质量扫描结果可满足这组条件时,项目才会被标记为“passed”
+- 管理员也可以在SonarQube上按需自定义并调用质量阈
+
+**创建新的质量阈**
+
+![image-20250227102738158](5day-png/32sinaeqube创建质量阀.png)
+
+![image-20250227102928393](5day-png/32Sonarqube质量阀.png)
+
+
+
+在SonarQube上添加webhook（网络调用），以便于Jenkins通过SonarQube Quality Gate插件（此插件无需安装）调用其“质量阈”信息
+
+配置 --- 网络调用 webhook --- 创建
+
+![image-20250227103603175](5day-png/32sonarqube-webhook.png)
+
+注意：此处的密码没有复杂度和长度要求，但建议使用符合安全的密码
+
+输入名称和下面 Jenkins的URL地址
+
+注意: 此密码只用于防止攻击使用, 所以可以随意输入
+
+```bash
+http://jenkins.kang.com:8080/sonarqube-webhook
+
+#生成随机Secret密码
+#方式一
+[root@ubuntu2404 ginweb]#openssl rand -base64 21
+sF7bK1GYcK4FcxBHymVgGhs8F4Ir
+#方式二
+[root@ubuntu2404 ginweb]#openssl rand -hex 21
+2521e05b8d3227e5a0cda5a1a73b1f60a69ac74fea
+```
+
+**jenkins服务器安装 sonar-scanner**
+
+```bash
+[root@ubuntu2404 ~]#cd /usr/local/src/
+[root@ubuntu2404 src]#wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-7.0.2.4839-linux-x64.zip
+[root@ubuntu2404 src]#unzip sonar-scanner-cli-7.0.2.4839-linux-x64.zip
+[root@ubuntu2404 src]#ln -s /usr/local/src/sonar-scanner-7.0.2.4839-linux-x64 /usr/local/sonar-scanner
+[root@ubuntu2404 src]#ln -s /usr/local/sonar-scanner/bin/sonar-scanner /usr/local/bin
+[root@ubuntu2404 src]#cat /usr/local/sonar-scanner/conf/sonar-scanner.properties 
+# Configure here general information about the environment, such as the server connection details for example
+# No information about specific project should appear here
+
+#----- SonarQube server URL (default to SonarCloud)
+#sonar.host.url=https://mycompany.com/sonarqube
+
+#sonar.scanner.proxyHost=myproxy.mycompany.com
+#sonar.scanner.proxyPort=8002
+#指向sonarqube服务器的地址和端口
+sonar.host.url=http://sonarqube.kang.com:9000 
+sonar.sourceEncoding=UTF-8
+sonar.login=squ_4a00c1e42a4ec29e17e60eab4ed6bd31a71d89a0
+```
+
+### 案例2:基于ipeLine实现JAVA项目集成SonarQube代码检测通知Jenkins
+
+![image-20250227105300907](5day-png/32综合案例1.png)
+
+![image-20250227105323210](5day-png/32综合案例2.png)
+
+```bash
+10.0.0.206 harbor.kang.com		DNS
+10.0.0.205 gitlab.kang.com
+10.0.0.204 jenkins.kang.com
+10.0.0.203 sonarqube.kang.com
+```
+
+#### 1 安装软件
+
+安装DNS服务脚本
+
+```bash
+[root@ubuntu2404 ~]#cat install_dns.sh 
+#!/bin/bash
+#
+
+#在HOST_LIST输入FQDN和IP的对应关系
+HOST_LIST="
+harbor 10.0.0.206
+gitlab 10.0.0.205
+jenkins 10.0.0.204
+sonarqube 10.0.0.203"
+
+DOMAIN=kang.com
+
+LOCALHOST=`hostname -I | awk '{print $1}'`
+
+. /etc/os-release
+
+
+color () {
+    RES_COL=60
+    MOVE_TO_COL="echo -en \\033[${RES_COL}G"
+    SETCOLOR_SUCCESS="echo -en \\033[1;32m"
+    SETCOLOR_FAILURE="echo -en \\033[1;31m"
+    SETCOLOR_WARNING="echo -en \\033[1;33m"
+    SETCOLOR_NORMAL="echo -en \E[0m"
+    echo -n "$1" && $MOVE_TO_COL
+    echo -n "["
+    if [ $2 = "success" -o $2 = "0" ] ;then
+        ${SETCOLOR_SUCCESS}
+        echo -n $"  OK  "    
+    elif [ $2 = "failure" -o $2 = "1"  ] ;then 
+        ${SETCOLOR_FAILURE}
+        echo -n $"FAILED"
+    else
+        ${SETCOLOR_WARNING}
+        echo -n $"WARNING"
+    fi
+    ${SETCOLOR_NORMAL}
+    echo -n "]"
+    echo 
+}
+
+
+install_dns () {
+    if [ $ID = 'centos' -o $ID = 'rocky' ];then
+        yum install -y  bind bind-utils
+    elif [ $ID = 'ubuntu' ];then
+        apt update
+        apt install -y bind9 bind9-utils bind9-host bind9-dnsutils
+    else
+        color "不支持此操作系统，退出!" 1
+        exit
+    fi
+    
+}
+
+config_dns () {
+    if [ $ID = 'centos' -o $ID = 'rocky' ];then
+        sed -i -e '/listen-on/s/127.0.0.1/localhost/' -e '/allow-query/s/localhost/any/' -e 's/dnssec-enable yes/dnssec-enable no/' -e 's/dnssec-validation yes/dnssec-validation no/'  /etc/named.conf
+        cat >>  /etc/named.rfc1912.zones <<EOF
+zone "$DOMAIN" IN {
+    type master;
+    file  "$DOMAIN.zone";
+};
+EOF
+        cat > /var/named/$DOMAIN.zone <<EOF
+\$TTL 1D
+@       IN SOA  master admin (
+                                        1       ; serial
+                                        1D      ; refresh
+                                        1H      ; retry
+                                        1W      ; expire
+                                        3H )    ; minimum
+        NS       master
+master  A        ${LOCALHOST}         
+EOF
+        echo "$HOST_LIST" | while read line; do 
+            awk '{print $1,"\tA\t",$2}' 
+        done >> /etc/bind/$DOMAIN.zone
+
+        chmod 640 /var/named/$DOMAIN.zone
+        chgrp named /var/named/$DOMAIN.zone
+    elif [ $ID = 'ubuntu' ];then
+        sed -i 's/dnssec-validation auto/dnssec-validation no/' /etc/bind/named.conf.options
+        cat >>  /etc/bind/named.conf.default-zones <<EOF
+zone "$DOMAIN" IN {
+    type master;
+    file  "/etc/bind/$DOMAIN.zone";
+};
+EOF
+        cat > /etc/bind/$DOMAIN.zone <<EOF
+\$TTL 1D
+@       IN SOA  master admin (
+                                        1       ; serial
+                                        1D      ; refresh
+                                        1H      ; retry
+                                        1W      ; expire
+                                        3H )    ; minimum
+        NS       master
+master  A        ${LOCALHOST}         
+EOF
+        echo "$HOST_LIST" | while read line; do
+            awk '{print $1,"\tA\t",$2}' 
+        done >> /etc/bind/$DOMAIN.zone
+
+        chgrp bind  /etc/bind/$DOMAIN.zone
+    else
+        color "不支持此操作系统，退出!" 1
+        exit
+    fi
+}
+
+start_service () {
+    systemctl enable named
+    systemctl restart named
+    systemctl is-active named.service
+    if [ $? -eq 0 ] ;then 
+        color "DNS 服务安装成功!" 0  
+    else
+        color "DNS 服务安装失败!" 1
+    exit 1
+    fi   
+}
+
+install_dns
+
+config_dns
+
+start_service
+```
+
+```bash
+[root@ubuntu2404 ~]#cat /etc/bind/kang.com.zone
+$TTL 1D
+@       IN SOA  master admin (
+                                        1       ; serial
+                                        1D      ; refresh
+                                        1H      ; retry
+                                        1W      ; expire
+                                        3H )    ; minimum
+        NS       master
+master  A        10.0.0.206         
+harbor  A        10.0.0.206
+gitlab  A        10.0.0.205
+jenkins         A        10.0.0.204
+sonarqube       A        10.0.0.203
+```
+
+##### **1 安装harbor**
+
+```bash
+[root@ubuntu2404 ~]#apt update;apt install -y docker.io docker-compose python3-pip
+[root@ubuntu2404 ~]#ls
+harbor-offline-installer-v2.12.2.tgz
+[root@ubuntu2404 ~]#tar xf harbor-offline-installer-v2.12.2.tgz -C /usr/local/
+[root@ubuntu2404 ~]#cd /usr/local/harbor/
+[root@ubuntu2404 harbor]#cp harbor.yml.tmpl harbor.yml
+[root@ubuntu2404 harbor]#ls
+common.sh  harbor.v2.12.2.tar.gz  harbor.yml  harbor.yml.tmpl  install.sh  LICENSE  prepare
+[root@ubuntu2404 harbor]#vim harbor.yml
+hostname: harbor.kang.com
+harbor_admin_password: 123456
+data_volume: /data/harbor
+#如果不使用https，还需要将下面行注释掉
+# https related config
+#https:
+  # https port for harbor, default is 443
+  #port: 443
+  # The path of cert and key files for nginx
+  #certificate: /your/certificate/path
+  #private_key: /your/private/key/path
+  # enable strong ssl ciphers (default: false)
+  # strong_ssl_ciphers: false
+[root@ubuntu2404 harbor]#mkdir /data/harbor -p
+[root@ubuntu2404 harbor]#bash install.sh 
+[root@ubuntu2404 harbor]#cat /lib/systemd/system/harbor.service 
+[Unit]
+Description=Harbor
+After=docker.service systemd-networkd.service systemd-resolved.service
+Requires=docker.service
+Documentation=http://github.com/vmware/harbor
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=5
+ExecStart=/usr/bin/docker-compose -f  /usr/local/harbor/docker-compose.yml up
+ExecStop=/usr/bin/docker-compose -f /usr/local/harbor/docker-compose.yml down
+[Install]
+WantedBy=multi-user.target
+
+[root@ubuntu2404 harbor]#systemctl daemon-reload 
+[root@ubuntu2404 harbor]#systemctl enable harbor.service 
+Created symlink /etc/systemd/system/multi-user.target.wants/harbor.service → /usr/lib/systemd/system/harbor.service.
+[root@ubuntu2404 harbor]#systemctl restart harbor.service 
+[root@ubuntu2404 harbor]#systemctl status harbor.service 
+```
+
+##### **2 安装gitlab**
+
+```bash
+[root@ubuntu2404 ~]#wget https://mirrors.tuna.tsinghua.edu.cn/gitlab-ce/ubuntu/pool/noble/main/g/gitlab-ce/gitlab-ce_17.8.2-ce.0_amd64.deb
+[root@ubuntu2404 ~]#apt install ./gitlab-ce_17.8.2-ce.0_amd64.deb
+[root@ubuntu2404 gitlab]#vim /etc/gitlab/gitlab.rb 
+external_url 'http://gitlab.kang.com'
+[root@ubuntu2404 gitlab]#gitlab-ctl status
+run: alertmanager: (pid 14690) 19s; run: log: (pid 14492) 71s
+run: gitaly: (pid 14657) 21s; run: log: (pid 13994) 204s
+run: gitlab-exporter: (pid 14667) 21s; run: log: (pid 14425) 88s
+run: gitlab-kas: (pid 14214) 188s; run: log: (pid 14224) 187s
+run: gitlab-workhorse: (pid 14633) 22s; run: log: (pid 14356) 101s
+run: logrotate: (pid 13916) 217s; run: log: (pid 13924) 216s
+run: nginx: (pid 14647) 22s; run: log: (pid 14373) 99s
+run: node-exporter: (pid 14653) 22s; run: log: (pid 14408) 93s
+run: postgres-exporter: (pid 14698) 18s; run: log: (pid 14514) 65s
+run: postgresql: (pid 14045) 194s; run: log: (pid 14060) 191s
+run: prometheus: (pid 14676) 20s; run: log: (pid 14469) 77s
+run: puma: (pid 14275) 116s; run: log: (pid 14284) 112s
+run: redis: (pid 13951) 211s; run: log: (pid 13960) 210s
+run: redis-exporter: (pid 14669) 21s; run: log: (pid 14448) 83s
+run: sidekiq: (pid 14297) 109s; run: log: (pid 14305) 108s
+```
+
+##### **3 安装jenkins**
+
+```bash
+[root@ubuntu2404 ~]#apt update && apt install -y openjdk-17-jdk
+[root@ubuntu2404 ~]#wget https://mirror.tuna.tsinghua.edu.cn/jenkins/debian-stable/jenkins_2.492.1_all.deb
+[root@ubuntu2404 ~]#dpkg -i ./jenkins_2.492.1_all.deb
+[root@ubuntu2404 ~]#systemctl status jenkins.service 
+#密码存放路径
+[root@ubuntu2404 ~]#cat /var/lib/jenkins/secrets/initialAdminPassword
+80b6d9dec9b5411c8604d990ba86c57a
+```
+
+
+
+##### **4 安装Sonarqube**
+
+```bash
+[root@ubuntu2404 ~]#apt update && apt -y install openjdk-17-jdk
+[root@ubuntu2404 ~]#useradd -s /bin/bash -m sonarqube
+[root@ubuntu2404 ~]#apt -y install postgresql
+[root@ubuntu2404 ~]#systemctl restart postgresql
+[root@ubuntu2404 ~]#su - postgres
+postgres@ubuntu2404:~$ psql -U postgres
+psql (16.6 (Ubuntu 16.6-0ubuntu0.24.04.1))
+Type "help" for help.
+
+postgres=# ALTER USER postgres WITH ENCRYPTED PASSWORD '123456';
+ALTER ROLE
+postgres=# CREATE USER sonarqube WITH ENCRYPTED PASSWORD '123456';
+CREATE ROLE
+postgres=# CREATE DATABASE sonarqube OWNER sonarqube;
+CREATE DATABASE
+postgres=# GRANT ALL PRIVILEGES ON DATABASE sonarqube TO sonarqube;
+GRANT
+postgres=# ALTER DATABASE sonarqube OWNER TO sonarqube;
+ALTER DATABASE
+postgres=# \l
+                                                         List of databases
+   Name    |   Owner   | Encoding | Locale Provider |   Collate   |    Ctype    | ICU Locale | ICU Rules |    Access privileges    
+-----------+-----------+----------+-----------------+-------------+-------------+------------+-----------+-------------------------
+ postgres  | postgres  | UTF8     | libc            | en_US.UTF-8 | en_US.UTF-8 |            |           | 
+ sonarqube | sonarqube | UTF8     | libc            | en_US.UTF-8 | en_US.UTF-8 |            |           | =Tc/sonarqube          +
+           |           |          |                 |             |             |            |           | sonarqube=CTc/sonarqube
+ template0 | postgres  | UTF8     | libc            | en_US.UTF-8 | en_US.UTF-8 |            |           | =c/postgres            +
+           |           |          |                 |             |             |            |           | postgres=CTc/postgres
+ template1 | postgres  | UTF8     | libc            | en_US.UTF-8 | en_US.UTF-8 |            |           | =c/postgres            +
+           |           |          |                 |             |             |            |           | postgres=CTc/postgres
+(4 rows)
+
+postgres=# \q
+postgres@ubuntu2404:~$ 
+logout
+
+[root@ubuntu2404 ~]#mkdir /data/apps -p
+[root@ubuntu2404 ~]#cd /data/apps/
+[root@ubuntu2404 apps]#ls
+sonarqube-9.9.8.100196.zip
+[root@ubuntu2404 apps]#ln -s /data/apps/sonarqube-9.9.8.100196 /usr/local/sonarqube
+[root@ubuntu2404 apps]#chown -R sonarqube:sonarqube /usr/local/sonarqube/
+[root@ubuntu2404 apps]#unzip sonarqube-9.9.8.100196.zip
+[root@ubuntu2204 apps]#vim /usr/local/sonarqube/conf/sonar.properties
+#修改连接postgresql数据库的账号和密码,和前面的配置必须匹配
+sonar.jdbc.username=sonarqube
+sonar.jdbc.password=123456
+
+#修改数据库相关的信息，这里必须和此前配置的postgresql内容相匹配，其中localhost为DB服务器的地址，而sonarqube为数据库名称
+sonar.jdbc.url=jdbc:postgresql://localhost/sonarqube
+
+#编写server文件
+[root@ubuntu2404 ~]#vim /usr/lib/systemd/system/sonarqube.service
+[Unit]
+Description=SonarQube service
+After=syslog.target network.target
+[Service]
+Type=simple
+User=sonarqube
+Group=sonarqube
+PermissionsStartOnly=true
+ExecStart=/usr/bin/nohup /usr/bin/java -Xms32m -Xmx32m -Djava.net.preferIPv4Stack=true -jar /usr/local/sonarqube/lib/sonar-application-9.9.8.100196.jar
+#ExecStart=/usr/bin/nohup /usr/bin/java -Xms32m -Xmx32m -
+Djava.net.preferIPv4Stack=true -jar /usr/local/sonarqube/lib/sonar-application-
+9.9.7.96285.jar
+#ExecStart=/usr/bin/nohup /usr/bin/java -Xms32m -Xmx32m -
+Djava.net.preferIPv4Stack=true -jar /usr/local/sonarqube/lib/sonar-application-
+8.9.2.46101.jar
+#ExecStart=/usr/bin/nohup /usr/bin/java -Xms32m -Xmx32m -
+Djava.net.preferIPv4Stack=true -jar /usr/local/sonarqube/lib/sonar-application-7.9.6.jar
+StandardOutput=syslog
+LimitNOFILE=131072
+TimeoutStartSec=5
+Restart=always
+[Install]
+WantedBy=multi-user.target
+
+[root@ubuntu2404 ~]#systemctl daemon-reload
+[root@ubuntu2404 ~]#systemctl enable --now sonarqube.service
+[root@ubuntu2404 ~]#systemctl status sonarqube.service 
+```
+
+
+
+### 2 软件部署
+
+**在Jenkins服务器安装Docker,并配置连接Harbor**
+
+```bash
+[root@ubuntu2404 ~]#apt update && apt -y install docker.io
+[root@ubuntu2404 ~]#cat /etc/docker/daemon.json
+{
+  "registry-mirrors": ["https://si7y70hh.mirror.aliyuncs.com"],
+  "insecure-registries": ["harbor.kang.com"]
+}
+
+#测试登录harbor
+[root@ubuntu2404 ~]#docker login harbor.kang.com
+Username: kang
+Password: 
+WARNING! Your password will be stored unencrypted in /root/.docker/config.json.
+Configure a credential helper to remove this warning. See
+https://docs.docker.com/engine/reference/commandline/login/#credentials-store
+
+Login Succeeded
+```
+
+
+
+**在** **Jenkins** **创建凭据连接** **Harbor**
+
+![image-20250227133902613](C:/Users/zhaok/AppData/Roaming/Typora/typora-user-images/image-20250227133902613.png)
+
+**在** **Jenkins** **安装** **Maven** **工具**
+
+```bash
+[root@ubuntu2404 ~]#apt update && apt install maven -y
+[root@ubuntu2404 ~]#vim /etc/maven/settings.xml
+    <mirror>
+      <id>nexus-aliyun</id>
+      <mirrorOf>*</mirrorOf>
+      <name>Nexus aliyun</name>
+      <url>http://maven.aliyun.com/nexus/content/groups/public</url>
+      <blocked>true</blocked>
+    </mirror>
+```
+
+**在** **Jenkins** **上配置** **Maven** **环境**
+
+![image-20250227140056139](5day-png/32配置mvn环境.png)
+
+**在** **Jenkins** **创建连接** **GitLab** **的凭据**
+
+![image-20250227140422563](5day-png/32jenkins连接gitlab的凭据)
+
+**在jenkins上修改jenkins用户使用docker的权限**
+
+```bash
+[root@ubuntu2404 ~]#usermod -G docker jenkins
+[root@ubuntu2404 ~]#id jenkins 
+uid=108(jenkins) gid=108(jenkins) groups=108(jenkins),109(docker)
+
+#必须重启jenkins服务才能生效
+[root@ubuntu2404 ~]#systemctl restart jenkins.service 
+```
+
+
+
+**在 Sonarqube 创建用户并授权**
+
+创建jenkins用户，并生成jenkins令牌 token
+
+```
+squ_247a95927838f6bf00377b280cb1a10888167179
+```
+
+**在** **SonarQube** **添加** **Jenkins** **的回调接口** **webhook**
+
+```bash
+#url
+http://jenkins.kang.com:8080/sonarqube-webhook
+#生成Secet
+[root@ubuntu2404 ~]#openssl rand -base64 21
+uxdI3H9kvuCVGCrS8AN1wan8ZiL6
+```
+
+**在** **Jenkins** **创建访问** **Sonarqube** **的令牌凭据**
+
+```bash
+#添写前面创建的Sonarqube中用户令牌
+squ_247a95927838f6bf00377b280cb1a10888167179
+#指定凭据的ID
+ID:sonarqube-jenkins-token
+```
+
+![image-20250227143143481](5day-png/32在 Jenkins 创建访问 Sonarqube 的令牌凭据.png)
+
+**在** **Jenkins** **上配置系统的** **SonarQube** **服务器信息**
+
+**注意:Name 名称区分大小写**
+
+**注意：http://sonarqube.kang.com:9000 地址最后不能加/** ，新版无此有要求
+
+**否则会报错误** **hudson.remoting.ProxyException: net.sf.json.JSONException: Invalid JSON String**
+
+Manage Jenkins -- Configure System
+
+注意这里的大小写 Sonarqube-Server
+
+![image-20250227143851945](5day-png/32在 Jenkins 上配置系统的 SonarQube 服务器信息)
+
+**在** **Jenkins** **上安装** **SonarQube Scanner**
+
+Jenkins 上安装 SonarQube Scanner 以便在构建任务中调用,有两种方式
+
+- 在 Jenkins 手动安装 sonarqube-scanner 
+
+- Jenkins 全局工具配置中配置安装 sonar-scanner
+
+  Manage Jenkins >全局工具配置
+
+```bash
+#在 Jenkins 手动安装 sonarqube-scanner
+[root@ubuntu2404 ~]#wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-7.0.2.4839-linux-x64.zip
+[root@ubuntu2404 ~]#mv sonar-scanner-cli-7.0.2.4839-linux-x64.zip /usr/local/src
+[root@ubuntu2404 ~]#cd /usr/local/src
+[root@ubuntu2404 src]#ls /src
+sonar-scanner-cli-7.0.2.4839-linux-x64.zip
+[root@ubuntu2404 src]#unzip src/sonar-scanner-cli-7.0.2.4839-linux-x64.zip 
+[root@ubuntu2404 src]#ls
+sonar-scanner-7.0.2.4839-linux-x64  sonar-scanner-cli-7.0.2.4839-linux-x64.zip
+[root@ubuntu2404 src]#ln -s /usr/local/src/sonar-scanner-7.0.2.4839-linux-x64 /usr/local/sonar-scanner
+[root@ubuntu2404 src]#ls ..
+bin  etc  games  include  lib  man  sbin  share  sonar-scanner  src
+[root@ubuntu2404 src]#ln -s /usr/local/sonar-scanner/bin/sonar-scanner /usr/local/bin
+```
+
+```bash
+[root@ubuntu2404 src]#cat /usr/local/sonar-scanner/conf/sonar-scanner.properties
+# Configure here general information about the environment, such as the server connection details for example
+# No information about specific project should appear here
+
+#----- SonarQube server URL (default to SonarCloud)
+#sonar.host.url=https://mycompany.com/sonarqube
+
+#sonar.scanner.proxyHost=myproxy.mycompany.com
+#sonar.scanner.proxyPort=8002
+sonar.host.url=http://sonarqube.kang.com:9000 
+sonar.sourceEncoding=UTF-8
+```
+
+**准备微信机器人**
+
+```
+https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=0eadce83-eff6-499d-9cbb-b16134afaf6b
+```
+
+**创建任务使用**
+
+```bash
+pipeline {
+    agent any
+    tools {
+        maven 'maven-3.8.7'
+    }
+    environment {
+        codeRepo="http://gitlab.kang.com/devops/spring-boot-helloworld.git"
+        credential='gitlab-kang-password'    
+        harborServer='harbor.kang.com'
+        projectName='spring-boot-helloworld'
+        imageUrl="${harborServer}/example/${projectName}"
+        imageTag="${BUILD_ID}"
+    }
+    stages {
+        stage('Source') {
+            steps {
+                git branch: 'main', credentialsId: "${credential}", url: "${codeRepo}"
+            }
+        }
+        stage('Test') {
+            steps {
+                sh 'mvn test'
+            }
+        }        
+        stage("SonarQube Analysis") {
+            steps {
+                withSonarQubeEnv('Sonarqube-Server') {
+                    sh 'mvn sonar:sonar'
+                    //sh 'mvn sonar:sonar -Dsonar.java.binaries=./'
+                }
+            }
+        }
+        stage("Quality Gate") {
+            steps {
+                timeout(time: 3, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }	
+        
+        stage('Build') {
+            steps {
+                //sh 'mvn -B -DskipTests clean package'
+                sh 'mvn -Dmaven.test.skip=true clean package'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker image build . -t "${imageUrl}:${imageTag}"'
+                // input(message: '镜像已经构建完成，是否要推送？')
+            }           
+        }
+        stage('Push Docker Image') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'harbor-kang-password', passwordVariable: 'harborPassword', usernameVariable: 'harborUserName')]) {
+                    sh "docker login -u ${env.harborUserName} -p ${env.harborPassword} ${harborServer}"
+                    sh "docker image push ${imageUrl}:${imageTag}"
+                }
+            }   
+        }
+        stage('Run Docker') {
+            steps {
+                sh 'ssh root@10.0.0.100 "docker rm -f ${projectName} && docker run --name ${projectName} -p 80:8888 -d ${imageUrl}:${imageTag}"'
+                sh 'ssh root@10.0.0.101 "docker rm -f ${projectName} && docker run --name ${projectName} -p 80:8888 -d ${imageUrl}:${imageTag}"'
+                //sh "docker -H 10.0.0.100:2375 rm -f ${projectName} && docker -H 10.0.0.202:2375 run --name ${projectName} -p 80:8888 -d ${imageUrl}:${imageTag}"
+                //sh "docker -H 10.0.0.101:2375 rm -f ${projectName} && docker -H 10.0.0.203:2375 run --name ${projectName} -p 80:8888 -d ${imageUrl}:${imageTag}"
+            }   
+        }          
+    }
+  post {
+        success {
+            mail to: 'zhaokang2004@outlook.com',
+            subject: "Status of pipeline: ${currentBuild.fullDisplayName}",
+            body: "${env.BUILD_URL} has result ${currentBuild.result}"
+        }
+        failure{
+            qyWechatNotification failNotify: true, webhookUrl: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=0eadce83-eff6-499d-9cbb-b16134afaf6b'
+        }
+   } 
+}
+```
+
+
+
+在后端服务器上部署docker 打通key验证 配置http
+
+
+
+
+
+## 面试题
+
+- 如何找回 Jenkins 密码
+- 简述什么是版本控制系统（VCS）？
+- 简述什么是 DevOps？
+- 简述软件交付过程？四种常见场景：传统方式，基于Ansible，Docker 容器，Kubernetes
