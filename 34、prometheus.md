@@ -3970,11 +3970,434 @@ inhibit_rules:
 
 ### 钉钉告警
 
+Prometheus 不直接支持钉钉告警, 但对于prometheus来说，它所支持的告警机制非常多，尤其还支持通过webhook，从而可以实现市面上大部分的实时动态的告警平台。
+
+```
+https://github.com/timonwong/prometheus-webhook-dingtalk
+```
+
+**工作原理**
+
+![image-20250305184521946](5day-png/34dingtalk工作原理.png)
+
  添加机器人
 
+```bash
+#加签
+SEC9bb07d564e34faab27db1f51356f8665ea00efef89e1b6ff694cbd9c78e58f9e
+
+#关键字
+PromAlert
+
+#url路径
+https://oapi.dingtalk.com/robot/send?access_token=283c518db0da5e50e87f6440a083c0dc8dd745b8ab71f8ea9c7645f07d65c5ac 
 ```
 
 ```
+https://github.com/timonwong/prometheus-webhook-dingtalk/
+```
+
+```
+https://github.com/timonwong/prometheus-webhook-dingtalk/releases/download/v2.1.0/prometheus-webhook-dingtalk-2.1.0.linux-amd64.tar.gz
+```
+
+**prometheus-webhook-dingtalk软件部署**
+
+二进制安装
+
+```bash
+[root@ubuntu2404 ~]#ls
+prometheus-webhook-dingtalk-2.1.0.linux-amd64.tar.gz
+[root@ubuntu2404 ~]#tar xf prometheus-webhook-dingtalk-2.1.0.linux-amd64.tar.gz -C /usr/local/
+[root@ubuntu2404 ~]#cd /usr/local/
+[root@ubuntu2404 local]#ln -s prometheus-webhook-dingtalk-2.1.0.linux-amd64/ dingtalk
+[root@ubuntu2404 dingtalk]#ls
+config.example.yml  contrib  LICENSE  prometheus-webhook-dingtalk
+[root@ubuntu2404 dingtalk]#mkdir bin conf
+[root@ubuntu2404 dingtalk]#mv config.example.yml conf/config.yml
+[root@ubuntu2404 dingtalk]#mv prometheus-webhook-dingtalk bin/
+
+#创建service文件
+[root@ubuntu2404 dingtalk]#vim /lib/systemd/system/dingtalk.service
+[Unit]
+Description=alertmanager project
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/dingtalk/bin/prometheus-webhook-dingtalk --config.file=/usr/local/dingtalk/conf/config.yml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+User=prometheus
+Group=prometheus
+
+[Install]
+WantedBy=multi-user.target
+
+[root@ubuntu2404 dingtalk]#chown -R prometheus: /usr/local/dingtalk/
+
+#修改配置文件
+[root@ubuntu2404 ~]#cat /usr/local/dingtalk/conf/config.example.yml
+## Request timeout
+# timeout: 5s
+
+## Uncomment following line in order to write template from scratch (be careful!)
+#no_builtin_template: true
+
+## Customizable templates path
+#templates:
+#  - contrib/templates/legacy/template.tmpl
+
+## You can also override default template using `default_message`
+## The following example to use the 'legacy' template from v0.3.0
+#default_message:
+#  title: '{{ template "legacy.title" . }}'
+#  text: '{{ template "legacy.content" . }}'
+
+## Targets, previously was known as "profiles"
+targets:
+  webhook1:
+    url: https://oapi.dingtalk.com/robot/send?access_token=283c518db0da5e50e87f6440a083c0dc8dd745b8ab71f8ea9c7645f07d65c5ac 
+    # secret for signature
+    secret: SEC9bb07d564e34faab27db1f51356f8665ea00efef89e1b6ff694cbd9c78e58f9e
+    
+    
+[root@ubuntu2404 ~]#systemctl enable --now dingtalk.service 
+[root@ubuntu2404 ~]#systemctl status dingtalk.service 
+```
+
+```bash
+[root@ubuntu2404 ~]#cat /usr/local/alertmanager/conf/alertmanager.yml 
+# 全局配置
+global:
+  resolve_timeout: 5m                        
+  smtp_smarthost: 'smtp.163.com:25'           #基于全局块指定发件人信息,此处设为25，如果465还需要添加tls相关配置
+  smtp_from: ' hzokang@163.com'
+  smtp_auth_username: 'hzokang@163.com'
+  smtp_auth_password: 'EBgCxViwqvnxxbEu'
+  smtp_hello: '163.com'
+  smtp_require_tls: false        #启用tls安全,默认true,此处设为false
+  #必须项
+  wechat_api_corp_id: 'ww644a0d95807e476b'
+  #此处的微信信息可省略,下面wechat_configs 也提供了相关信息
+  wechat_api_url: 'https://qyapi.weixin.qq.com/cgi-bin/'
+  wechat_api_secret: 'qYgLlipdHtZidsd8qAZaTKKkGkzIyWxuQSeQOk9Si0M'
+
+# 模板配置文件
+templates:            #加下面两行加载模板文件
+  - '../tmpl/*.tmpl'  #相对路径是相对于altermanager.yml文件的路径
+
+# 路由配置
+route:
+  group_by: ['instance', 'cluster']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 10s
+  receiver: 'email'
+# 新版：使用指令matchers替换match和match_re,如下示例
+  routes:
+  - receiver: 'dingtalk'
+    matchers:
+    - severity = "critical"
+  - receiver: 'ops-team'
+    matchers:
+    - severity =~ "^(warning)$"
+# 旧版：使用match和match_ce
+#  routes:
+#    - match:
+#        severity: critical
+#      receiver: 'leader-team'
+#
+#    - match_re:
+#        severity: warning  # `warning` 不需要 `^(warning)$`
+#      receiver: 'ops-team'
 
 
+
+# 收信人员
+receivers:
+- name: 'email'
+  email_configs:
+  - to: 'hzokang@outlook.com'
+    send_resolved: true           #问题解决后也会发送恢复通知  
+    headers: { Subject: "[WARN] 报警邮件"}   #添加此行,定制邮件标题
+    html: '{{ template "email.html" . }}'    #添加此行,调用模板显示邮件正文
+
+- name: 'leader-team'
+  email_configs:
+  - to: '2352136389@qq.com'
+    html: '{{ template "test.html" . }}'
+    headers: { Subject: "[CRITICAL] 应用服务报警邮件"}
+    send_resolved: true
+
+- name: 'ops-team'
+  email_configs:
+  - to: 'hzokang@outlook.com'
+    html: '{{ template "test.html" . }}'
+    headers: { Subject: "[WARNNING] QPS负载报警邮件"}
+    send_resolved: true
+
+- name: 'wechat'
+  wechat_configs:
+  - to_party: '2'
+    #to_user: '@all' #支持给企业内所有人发送
+    agent_id: '1000004'
+    #api_secret: 'qYgLlipdHtZidsd8qAZaTKKkGkzIyWxuQSeQOk9Si0M'
+    send_resolved: true
+    message: '{{ template "wechat.default.message" . }}'
+
+- name: 'dingtalk'
+  webhook_configs:
+  - url: 'http://10.0.0.200:8060/dingtalk/webhook1/send'
+    send_resolved: true
+
+# 抑制措施
+inhibit_rules: 
+- source_match: 
+    severity: critical     #被依赖的告警服务
+  target_match:             
+    severity: warning      #依赖的告警服务
+  equal:
+    - instance
+```
+
+模板文件 需要带上关键字PromAlert
+
+```bash
+[root@ubuntu2404 ~]#vim /usr/local/dingtalk/contrib/templates/dingtalk.tmpl
+{{ define "__subject" }}
+[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] 
+{{ .GroupLabels.SortedPairs.Values | join " " }} 
+{{ if gt (len .CommonLabels) (len .GroupLabels) }}
+({{ with .CommonLabels.Remove .GroupLabels.Names }}{{ .Values | join " " }}{{ end }})
+{{ end }}
+{{ end }}
+
+{{ define "__alertmanagerURL" }}
+{{ .ExternalURL }}/#/alerts?receiver={{ .Receiver }}
+{{ end }}
+
+{{ define "__text_alert_list" }}
+{{ range . }}
+**Labels**
+{{ range .Labels.SortedPairs }}> - {{ .Name }}: {{ .Value | markdown | html }}
+{{ end }}
+
+**Annotations**
+{{ range .Annotations.SortedPairs }}> - {{ .Name }}: {{ .Value | markdown | html }}
+{{ end }}
+
+**Source:** [{{ .GeneratorURL }}]({{ .GeneratorURL }})
+{{ end }}
+{{ end }}
+
+{{ define "___text_alert_list" }}
+{{ range . }}
+---
+**告警主题:** {{ .Labels.alertname | upper }}
+**告警级别:** {{ .Labels.severity | upper }}
+**触发时间:** {{ dateInZone "2006-01-02 15:04:05" (.StartsAt) "Asia/Shanghai" }}
+
+**事件信息:**
+{{ range .Annotations.SortedPairs }} {{ .Value | markdown | html }}
+{{ end }}
+
+**事件标签:**
+{{ range .Labels.SortedPairs }}
+{{ if and (ne (.Name) "severity") (ne (.Name) "summary") (ne (.Name) "team") }}
+> - {{ .Name }}: {{ .Value | markdown | html }}
+{{ end }}
+{{ end }}
+{{ end }}
+{{ end }}
+
+{{ define "___text_alertresovle_list" }}
+{{ range . }}
+---
+**告警主题:** {{ .Labels.alertname | upper }}
+**告警级别:** {{ .Labels.severity | upper }}
+**触发时间:** {{ dateInZone "2006-01-02 15:04:05" (.StartsAt) "Asia/Shanghai" }}
+**结束时间:** {{ dateInZone "2006-01-02 15:04:05" (.EndsAt) "Asia/Shanghai" }}
+
+**事件信息:**
+{{ range .Annotations.SortedPairs }} {{ .Value | markdown | html }}
+{{ end }}
+
+**事件标签:**
+{{ range .Labels.SortedPairs }}
+{{ if and (ne (.Name) "severity") (ne (.Name) "summary") (ne (.Name) "team") }}
+> - {{ .Name }}: {{ .Value | markdown | html }}
+{{ end }}
+{{ end }}
+{{ end }}
+{{ end }}
+
+{{ define "_default.title" }}
+{{ template "__subject" . }}
+{{ end }}
+
+{{ define "_default.content" }}
+[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
+**[{{ index .GroupLabels "alertname" }}]({{ template "__alertmanagerURL" . }})**
+
+{{ if gt (len .Alerts.Firing) 0 -}}
+![警报](http://www.wangxiaochun.com:8888/testdir/images/ERROR.png)
+**======== PromAlert 告警触发 ========**
+{{ template "___text_alert_list" .Alerts.Firing }}
+{{- end }}
+
+{{ if gt (len .Alerts.Resolved) 0 -}}
+![恢复](http://www.wangxiaochun.com:8888/testdir/images/OK.png)
+**======== PromAlert 告警恢复 ========**
+{{ template "___text_alertresovle_list" .Alerts.Resolved }}
+{{- end }}
+{{- end }}
+
+{{ define "legacy.title" }}
+{{ template "__subject" . }}
+{{ end }}
+
+{{ define "legacy.content" }}
+[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
+**[{{ index .GroupLabels "alertname" }}]({{ template "__alertmanagerURL" . }})**
+
+{{ template "__text_alert_list" .Alerts.Firing }}
+{{- end }}
+
+{{ define "_ding.link.title" }}
+{{ template "_default.title" . }}
+{{ end }}
+
+{{ define "_ding.link.content" }}
+{{ template "_default.content" . }}
+{{ end }}
+
+```
+
+ 修改配置文件
+
+```bash
+[root@ubuntu2404 ~]#cat /usr/local/dingtalk/conf/config.yml
+## Request timeout
+# timeout: 5s
+
+## Uncomment following line in order to write template from scratch (be careful!)
+#no_builtin_template: true
+
+## Customizable templates path
+#templates:
+#  - contrib/templates/legacy/template.tmpl
+
+templates:
+  - '/usr/local/dingtalk/contrib/templates/dingtalk.tmpl'
+default_message:
+  title: '{{ template "_ding.link.title" . }}'
+  text: '{{ template "_ding.link.content" . }}'
+
+## You can also override default template using `default_message`
+## The following example to use the 'legacy' template from v0.3.0
+#default_message:
+#  title: '{{ template "legacy.title" . }}'
+#  text: '{{ template "legacy.content" . }}'
+
+## Targets, previously was known as "profiles"
+targets:
+  webhook1:
+    url: https://oapi.dingtalk.com/robot/send?access_token=283c518db0da5e50e87f6440a083c0dc8dd745b8ab71f8ea9c7645f07d65c5ac 
+    # secret for signature
+    secret: SEC9bb07d564e34faab27db1f51356f8665ea00efef89e1b6ff694cbd9c78e58f9e
+```
+
+```bash
+systemctl reload prometheus.service 
+systemctl reload dingtalk.service 
+systemctl reload alertmanager.service
+```
+
+
+
+
+
+## **Alertmanager** **高可用**
+
+<img src="5day-png/34alertmanager高可用.png" alt="image-20250305200805898" style="zoom:50%;" />
+
+**Gossip** **谣言协议实现**
+
+Alertmanager引入了Gossip机制。Gossip机制为多个Alertmanager之间提供了信息传递的机制。确保及时、在多个Alertmanager分别接收到相同告警信息的情况下，也只有一个告警通知被发送给Receiver。
+
+![image-20250305200936665](5day-png/34alertmanager高可用1.png)
+
+Gossip是分布式系统中被广泛使用的协议，用于实现分布式节点之间的信息交换和状态同步。Gossip协议同步状态类似于流言或者病毒的传播，如下所示：
+
+![image-20250305201001872](5day-png/34alertmanager高可用2.png)
+
+Gossip有两种实现方式分别为Push-based和Pull-based。
+
+在Push-based当集群中某一节点A完成一个工作后，随机的挑选其它节点B并向其发送相应的消息，节点B接收到消息后在重复完成相同的工作，直到传播到集群中的所有节点。
+
+而Pull-based的实现中节点A会随机的向节点B发起询问是否有新的状态需要同步，如果有则返回。
+
+搭建本地集群环境
+
+为了能够让Alertmanager节点之间进行通讯，需要在Alertmanager启动时设置相应的参数。其中主要的参数包括：
+
+```bash
+--web.listen-address string      #当前实例Web监听地址和端口,默认9093
+--cluster.listen-address string  #当前实例集群服务监听地址,默认9094,集群必选
+--cluster.peer value             #后续集群实例在初始化时需要关联集群中的已有实例的服务地址,集群的后续节点必选
+```
+
+
+
+范例：在不同主机用Alertmanager实现
+
+第一台主机定义Alertmanager实例A，其中Alertmanager的服务运行在9093端口，集群服务地址运行在9094端口。
+
+```bash
+[root@ubuntu2404 ~]#/usr/local/alertmanager/bin/alertmanager --config.file=/usr/local/alertmanager/conf/alertmanager.yml --storage.path=/usr/local/alertmanager/data --web.listen-address=0.0.0.0:9093 --cluster.listen-address=0.0.0.0:9094
+```
+
+第二台主机定义Alertmanager实例B，其中Alertmanager的服务运行在9093端口，集群服务运行在9094端口。
+
+为了将A1，A2组成集群。 A2启动时需要定义--cluster.peer参数并且指向A1实例的集群服务地址:9094
+
+```
+[root@ubuntu2404 ~]#/usr/local/alertmanager/bin/alertmanager --config.file=/usr/local/alertmanager/conf/alertmanager.yml --storage.path=/usr/local/alertmanager/data --web.listen-address=0.0.0.0:9093 --cluster.listen-address=0.0.0.0:9094 --cluster.peer=10.0.0.200:9094
+```
+
+创建配置文件
+
+```bash
+[root@ubuntu2404 ~]#cat /usr/local/prometheus/conf/prometheus.yml
+# my global config
+global:
+  scrape_interval: 15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+  evaluation_interval: 15s # Evaluate rules every 15 seconds. The default is every 1 minute.
+  # scrape_timeout is set to the global default (10s).
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - 10.0.0.200:9093
+          # - alertmanager:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+rule_files:
+    - "../rules/*.yml"
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+# A scrape configuration containing exactly one endpoint to scrape:
+# Here it's Prometheus itself.
+scrape_configs:
+  # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+  - job_name: "alertmanager"
+    static_configs:
+      - targets: 
+        - "10.0.0.200:9093"
+        - "10.0.0.202:9093"
+```
 
