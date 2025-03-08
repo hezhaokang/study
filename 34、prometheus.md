@@ -328,6 +328,142 @@ WantedBy=multi-user.target
 [root@ubuntu2404 ~]#systemctl enable --now prometheus.service 
 ```
 
+### 脚本安装
+
+```bash
+[root@ubuntu2404 ~]#cat install_prometheus.sh 
+#!/bin/bash
+
+#支持在线和离线安装,建议离线安装,在线下载很慢
+
+PROMETHEUS_VERSION=2.53.3
+#PROMETHEUS_VERSION=3.0.1
+#PROMETHEUS_VERSION=2.53.2
+#PROMETHEUS_VERSION=2.53.0
+#PROMETHEUS_VERSION=2.50.1
+#PROMETHEUS_VERSION=2.42.0
+#PROMETHEUS_VERSION=2.39.1
+#PROMETHEUS_VERSION=2.37.0
+#PROMETHEUS_VERSION=2.30.3
+#PROMETHEUS_VERSION=2.17.1
+
+PROMETHEUS_FILE="prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
+#PROMETHEUS_URL="https://mirrors.tuna.tsinghua.edu.cn/github-release/prometheus/prometheus/LatestRelease/${PROMETHEUS_FILE}"
+PROMETHEUS_URL="https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/${PROMETHEUS_FILE}"
+
+GITHUB_PROXY=https://mirror.ghproxy.com/
+
+
+INSTALL_DIR=/usr/local
+
+HOST=`hostname -I|awk '{print $1}'`
+
+
+. /etc/os-release
+
+msg_error() {
+  echo -e "\033[1;31m$1\033[0m"
+}
+
+msg_info() {
+  echo -e "\033[1;32m$1\033[0m"
+}
+
+msg_warn() {
+  echo -e "\033[1;33m$1\033[0m"
+}
+
+
+color () {
+    RES_COL=60
+    MOVE_TO_COL="echo -en \\033[${RES_COL}G"
+    SETCOLOR_SUCCESS="echo -en \\033[1;32m"
+    SETCOLOR_FAILURE="echo -en \\033[1;31m"
+    SETCOLOR_WARNING="echo -en \\033[1;33m"
+    SETCOLOR_NORMAL="echo -en \E[0m"
+    echo -n "$1" && $MOVE_TO_COL
+    echo -n "["
+    if [ $2 = "success" -o $2 = "0" ] ;then
+        ${SETCOLOR_SUCCESS}
+        echo -n $"  OK  "    
+    elif [ $2 = "failure" -o $2 = "1"  ] ;then 
+        ${SETCOLOR_FAILURE}
+        echo -n $"FAILED"
+    else
+        ${SETCOLOR_WARNING}
+        echo -n $"WARNING"
+    fi
+    ${SETCOLOR_NORMAL}
+    echo -n "]"
+    echo 
+}
+
+
+install_prometheus () {
+    if [ ! -f  ${PROMETHEUS_FILE} ] ;then
+        wget ${GITHUB_PROXY}${PROMETHEUS_URL} ||  { color "下载失败!" 1 ; exit ; }
+    fi
+    [ -d $INSTALL_DIR ] || mkdir -p $INSTALL_DIR
+    tar xf ${PROMETHEUS_FILE} -C $INSTALL_DIR
+    cd $INSTALL_DIR &&  ln -s prometheus-${PROMETHEUS_VERSION}.linux-amd64 prometheus
+    mkdir -p $INSTALL_DIR/prometheus/{bin,conf,data}
+    cd $INSTALL_DIR/prometheus && { mv prometheus promtool bin/ ; mv prometheus.yml conf/; }
+    id prometheus &>/dev/null || useradd -r -s /sbin/nologin prometheus
+    chown -R prometheus:prometheus ${INSTALL_DIR}/prometheus/
+    
+    cat >>  /etc/profile <<EOF
+export PROMETHEUS_HOME=${INSTALL_DIR}/prometheus
+export PATH=\${PROMETHEUS_HOME}/bin:\$PATH
+EOF
+
+}
+
+
+prometheus_service () {
+    cat > /lib/systemd/system/prometheus.service <<EOF
+[Unit]
+Description=Prometheus Server
+Documentation=https://prometheus.io/docs/introduction/overview/
+After=network.target
+
+[Service]
+Restart=on-failure
+User=prometheus
+Group=prometheus
+WorkingDirectory=${INSTALL_DIR}/prometheus
+ExecStart=${INSTALL_DIR}/prometheus/bin/prometheus --config.file=${INSTALL_DIR}/prometheus/conf/prometheus.yml --web.enable-lifecycle
+ExecReload=/bin/kill -HUP \$MAINPID
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now prometheus.service
+}
+
+
+start_prometheus() { 
+    systemctl is-active prometheus
+    if [ $?  -eq 0 ];then  
+        echo 
+        color "Prometheus 安装完成!" 0
+        echo "-------------------------------------------------------------------"
+        echo -e "访问链接: \c"
+        msg_info "http://$HOST:9090/" 
+    else
+        color "Prometheus 安装失败!" 1
+        exit
+    fi 
+}
+
+install_prometheus
+
+prometheus_service
+
+start_prometheus
+```
+
 
 
 ### **API** **访问**
@@ -462,6 +598,8 @@ scrape_configs:
 
 ### nood-exporter
 
+#### 二进制部署
+
 ```bash
 https://github.com/prometheus/node_exporter/releases/download/v1.9.0/node_exporter-1.9.0.linux-amd64.tar.gz
 
@@ -556,7 +694,7 @@ scrape_configs:
 
 
 
-**在prometheus server上安装node-exporter**
+#### **在prometheus server上脚本安装node-exporter**
 
 ```bash
 #脚本安装
@@ -854,6 +992,8 @@ scrape_configs:
 
 ### pushgateway
 
+#### 部署
+
 ```bash
 https://github.com/prometheus/pushgateway/releases/download/v1.11.0/pushgateway-1.11.0.linux-amd64.tar.gz
 
@@ -904,6 +1044,133 @@ Created symlink /etc/systemd/system/multi-user.target.wants/pushgateway.service 
 ```
 http://10.0.0.200:9091/metrics
 ```
+
+#### 脚本安装
+
+```bash
+[root@ubuntu2404 data]#cat install_pushgateway.sh 
+#!/bin/bash
+
+#支持在线和离线安装，建议离线
+
+PUSHGATEWAY_VERSION=1.11.0
+#PUSHGATEWAY_VERSION=1.10.0
+#PUSHGATEWAY_VERSION=1.9.0
+#PUSHGATEWAY_VERSION=1.7.0
+#PUSHGATEWAY_VERSION=1.5.1
+#PUSHGATEWAY_VERSION=1.4.3
+PUSHGATEWAY_FILE="pushgateway-${PUSHGATEWAY_VERSION}.linux-amd64.tar.gz"
+PUSHGATEWAY_URL=https://github.com/prometheus/pushgateway/releases/download/v${PUSHGATEWAY_VERSION}/${PUSHGATEWAY_FILE}
+
+GITHUB_PROXY=https://mirror.ghproxy.com/
+
+
+
+INSTALL_DIR=/usr/local
+
+HOST=`hostname -I|awk '{print $1}'`
+
+
+. /etc/os-release
+
+msg_error() {
+  echo -e "\033[1;31m$1\033[0m"
+}
+
+msg_info() {
+  echo -e "\033[1;32m$1\033[0m"
+}
+
+msg_warn() {
+  echo -e "\033[1;33m$1\033[0m"
+}
+
+
+color () {
+    RES_COL=60
+    MOVE_TO_COL="echo -en \\033[${RES_COL}G"
+    SETCOLOR_SUCCESS="echo -en \\033[1;32m"
+    SETCOLOR_FAILURE="echo -en \\033[1;31m"
+    SETCOLOR_WARNING="echo -en \\033[1;33m"
+    SETCOLOR_NORMAL="echo -en \E[0m"
+    echo -n "$1" && $MOVE_TO_COL
+    echo -n "["
+    if [ $2 = "success" -o $2 = "0" ] ;then
+        ${SETCOLOR_SUCCESS}
+        echo -n $"  OK  "    
+    elif [ $2 = "failure" -o $2 = "1"  ] ;then 
+        ${SETCOLOR_FAILURE}
+        echo -n $"FAILED"
+    else
+        ${SETCOLOR_WARNING}
+        echo -n $"WARNING"
+    fi
+    ${SETCOLOR_NORMAL}
+    echo -n "]"
+    echo 
+}
+
+
+install_pushgateway () {
+    if [ ! -f  ${PUSHGATEWAY_FILE} ] ;then
+        wget ${GITHUB_PROXY}${PUSHGATEWAY_URL} ||  { color "下载失败!" 1 ; exit ; }
+    fi
+    [ -d $INSTALL_DIR ] || mkdir -p $INSTALL_DIR
+    tar xf ${PUSHGATEWAY_FILE} -C $INSTALL_DIR
+    cd $INSTALL_DIR &&  ln -s pushgateway-${PUSHGATEWAY_VERSION}.linux-amd64 pushgateway
+    mkdir -p $INSTALL_DIR/pushgateway/bin
+    cd $INSTALL_DIR/pushgateway &&  mv pushgateway bin/ 
+        id prometheus &>/dev/null || useradd -r -s /sbin/nologin prometheus
+        chown -R prometheus.prometheus $INSTALL_DIR/pushgateway/
+    ln -s $INSTALL_DIR/pushgateway/bin/pushgateway /usr/local/bin/
+}
+
+
+pushgateway_service () {
+    cat > /lib/systemd/system/pushgateway.service <<EOF
+[Unit]
+Description=Prometheus Pushgateway
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$INSTALL_DIR/pushgateway/bin/pushgateway
+ExecReload=/bin/kill -HUP \$MAINPID
+Restart=on-failure
+User=prometheus
+Group=prometheus
+
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now pushgateway.service
+}
+
+
+start_pushgateway() { 
+    systemctl is-active pushgateway.service
+    if [ $?  -eq 0 ];then  
+        echo 
+        color "pushgateway 安装完成!" 0
+        echo "-------------------------------------------------------------------"
+        echo -e "访问链接: \c"
+        msg_info "http://$HOST:9091" 
+    else
+        color "pushgateway 安装失败!" 1
+        exit
+    fi 
+}
+
+install_pushgateway
+
+pushgateway_service
+
+start_pushgateway
+```
+
+
 
 #### prometheus监控pushgateway
 
@@ -4401,3 +4668,3382 @@ scrape_configs:
         - "10.0.0.202:9093"
 ```
 
+
+
+## 服务发现
+
+Prometheus Server的数据抓取工作于Pull模型，因而，它必需要事先知道各Target的位置，然后才能从相应的Exporter或Instrumentation中抓取数据。
+
+```bash
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["10.0.0.200:9090"]
+
+  - job_name: "node_exporter"
+    static_configs:
+      - targets:
+          - "10.0.0.201:9100"
+          - "10.0.0.200:9100"
+          - "10.0.0.202:9100"
+```
+
+| 方法                | 解析                                                         |
+| ------------------- | ------------------------------------------------------------ |
+| 静态服务发现        | 在Prometheus配置文件中通过static_config项,手动添加监控的主机实现 |
+| 基于文件的服务发现  | 将各target记录到文件中，prometheus启动后，周期性刷新这个文件，从而获取最新的target |
+| 基于DNS的服务发 现  | 针对一组DNS域名进行定期查询，以发现待监控的目标，并持续监视相关资源的变动 |
+| 基于Consul服务发现  | 基于 Consul 服务实现动态自动发现                             |
+| 基于HTTP的服务发 现 | 基于 HTTP 的服务发现提供了一种更通用的方式来配置静态目标，并用作插入自定义服务 发现机制的接口。 它从包含零个或多个 列表的 HTTP 端点获取目标。 目标必须回复 HTTP 200 响应。 HTTP header Content-Type 必须是 application/json，body 必须是有效的 JSON。 |
+| 基于API 的服务发现  | 支持将Kubernetes API Server中Node、Service、Endpoint、Pod和Ingress等资源类型下相应的各资源对象视作target，并持续监视相关资源的变动。 |
+
+**服务发现原理**
+
+![image-20250306092444598](5day-png/34服务发现原理.png)
+
+Prometheus服务发现机制大致涉及到三个部分：
+
+- 配置处理模块解析的prometheus.yml配置中scrape_configs部分，将配置的job生成一个个Discover服务，不同的服务发现协议都会有各自的Discoverer实现方式，它们根据实现逻辑去发现target，并将其放入到targets列表中
+- DiscoveryManager组件内部有一个定时周期触发任务，每5秒检查target列表，如果有变更则将target列表中target信息放入到syncCh消息池中
+- scrape组件会监听syncCh消息池，这样需要监控的target信息就传递给scrape组件，然后reload将target纳入监控开始抓取监控指标
+
+### **文件服务发现**
+
+文件发现原理
+
+- Target的文件可由手动创建或利用工具生成，例如Ansible或Saltstack等配置管理系统，也可能是由脚本基于CMDB定期查询生成
+- 文件可使用YAML和JSON格式，它含有定义的Target列表，以及可选的标签信息,YAML 适合于运维场景, JSON 更适合于开发场景
+- Prometheus Server定期从文件中加载Target信息，根据文件内容发现相应的Target
+
+配置过程和格式
+
+```bash
+#准备主机节点列表文件,可以支持yaml格式和json格式
+#注意：此文件不建议就地编写生成，可能出现加载一部分的情况
+cat targets/prometheus*.yaml
+- targets:
+  - master1:9100
+  labels:
+    app: prometheus
+
+#修改prometheus配置文件自动加载实现自动发现
+cat prometheus.yml
+......
+  - job_name: 'file_sd_prometheus'
+	scrape_interval: 10s                #指定抓取数据的时间间隔,默认继取全局的配置15s
+	file_sd_configs:
+	- files: 						#指定要加载的文件列表
+	  - targets/prometheus*.yaml 	#要加载的yml或json文件路径，支持glob通配符,相对路径是相对于prometheus.yml配置文件路径
+	    refresh_interval: 2m 			#每隔2分钟重新加载一次文件中定义的Targets，默认为5m
+      
+#注意：文件格式都是yaml或json格式
+```
+
+文件发现会生成meta_label
+
+```
+__meta_filepath="/usr/local/prometheus/conf/targets/prometheues-server.yml"
+```
+
+**案例yaml格式**
+
+```bash
+#创建目标目录
+[root@ubuntu2404 ~]#mkdir /usr/local/prometheus/conf/targets -p
+[root@ubuntu2404 ~]#cd /usr/local/prometheus/conf/targets/
+[root@ubuntu2404 ~]#cat /usr/local/prometheus/conf/targets/prometheus-server.yml 
+- targets:
+  - 10.0.0.200:9090
+  labels:
+    app: prometheus-server
+    job: prometheus-server
+[root@ubuntu2404 ~]#cat /usr/local/prometheus/conf/targets/prometheus-node.yml 
+- targets:
+  - 10.0.0.200:9100
+  labels:
+    app: prometheus-node
+    job: prometheus-node
+- targets:
+  - 10.0.0.201:9100
+  - 10.0.0.202:9100
+  labels:
+    app: node-exporter
+    job: node
+[root@ubuntu2404 ~]#cat /usr/local/prometheus/conf/targets/prometheus-flask.yml 
+- targets:
+  - 10.0.0.200:8000
+  labels:
+    app: flask-web
+    job: prometheus-flask
+    
+[root@ubuntu2404 ~]#cat /usr/local/prometheus/conf/prometheus.yml
+# my global config
+global:
+  scrape_interval: 15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+  evaluation_interval: 15s # Evaluate rules every 15 seconds. The default is every 1 minute.
+  # scrape_timeout is set to the global default (10s).
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - 10.0.0.200:9093
+          # - alertmanager:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+rule_files:
+    - "../rules/*.yml"
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+# A scrape configuration containing exactly one endpoint to scrape:
+# Here it's Prometheus itself.
+scrape_configs:
+  # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+    # metrics_path defaults to '/metrics'
+    # scheme defaults to 'http'.
+  - job_name: "file_sd_prometheus"
+    scrape_interval: 10s		 #指定抓取数据的时间间隔
+    file_sd_configs:
+    - files:
+      - targets/prometheus-server.yml
+      refresh_interval: 10s		#指定重读文件的时间间隔,默认值5m
+
+  - job_name: "file_sd_node_exporter"
+    scrape_interval: 10s
+    file_sd_configs:
+    - files:
+      - targets/prometheus-node.yml
+      refresh_interval: 10s
+
+  - job_name: "file_sd_flask_web"
+    scrape_interval: 10s
+    file_sd_configs:
+    - files:
+      - targets/prometheus-flask.yml
+      refresh_interval: 10s
+```
+
+**案例JSON格式**
+
+```bash
+#yaml转json
+[root@ubuntu2404 ~]#apt update && apt install reserialize -y
+[root@ubuntu2404 targets]#ls
+prometheus-flask.yml  prometheus-node.yml  prometheus-server.yml
+[root@ubuntu2404 targets]#yaml2json prometheus-flask.yml | jq > prometheus-flask.json
+[root@ubuntu2404 targets]#ls
+prometheus-flask.json  prometheus-flask.yml  prometheus-node.yml  prometheus-server.yml
+[root@ubuntu2404 targets]#cat prometheus-flask.json 
+[
+  {
+    "targets": [
+      "10.0.0.200:8000"
+    ],
+    "labels": {
+      "app": "flask-web",
+      "job": "prometheus-flask"
+    }
+  }
+]
+
+[root@ubuntu2404 conf]#cat /usr/local/prometheus/conf/prometheus.yml
+# my global config
+global:
+  scrape_interval: 15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+  evaluation_interval: 15s # Evaluate rules every 15 seconds. The default is every 1 minute.
+  # scrape_timeout is set to the global default (10s).
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - 10.0.0.200:9093
+          # - alertmanager:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+rule_files:
+    - "../rules/*.yml"
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+# A scrape configuration containing exactly one endpoint to scrape:
+# Here it's Prometheus itself.
+scrape_configs:
+  # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+    # metrics_path defaults to '/metrics'
+    # scheme defaults to 'http'.
+  - job_name: "file_sd_flask_web"
+    scrape_interval: 10s
+    file_sd_configs:
+    - files:
+      - targets/prometheus-flask.json
+      refresh_interval: 10s
+```
+
+### DNS 服务发现
+
+<img src="5day-png/34DNS服务发现.png" alt="image-20250306151704582" style="zoom:50%;" />
+
+```
+DNS RR 类型 5个字段
+$TTL 1D
+名字   IN TYPE Value
+www  2D   IN  A  1.2.3.4
+
+A 域名--> IPv4
+AAAA 域名--> IPv6
+PTR IPv4 -->  域名
+CNAME 别名  域名 --》 别名的域名
+SOA 当前区域zone 的meta 数据，
+NS  名称服务器 DNS服务器信息
+MX  邮件服务
+SRV 服务发现 TCP，UDP
+TXT https  
+```
+
+**DNS安装脚本**
+
+```bash
+[root@ubuntu2404 ~]#cat install_dns.sh 
+#!/bin/bash
+
+#在HOST_LIST输入FQDN和IP的对应关系
+HOST_LIST="
+www 10.0.0.200"
+
+DOMAIN=kang.org
+
+LOCALHOST=`hostname -I | awk '{print $1}'`
+
+. /etc/os-release
+
+
+color () {
+    RES_COL=60
+    MOVE_TO_COL="echo -en \\033[${RES_COL}G"
+    SETCOLOR_SUCCESS="echo -en \\033[1;32m"
+    SETCOLOR_FAILURE="echo -en \\033[1;31m"
+    SETCOLOR_WARNING="echo -en \\033[1;33m"
+    SETCOLOR_NORMAL="echo -en \E[0m"
+    echo -n "$1" && $MOVE_TO_COL
+    echo -n "["
+    if [ $2 = "success" -o $2 = "0" ] ;then
+        ${SETCOLOR_SUCCESS}
+        echo -n $"  OK  "    
+    elif [ $2 = "failure" -o $2 = "1"  ] ;then 
+        ${SETCOLOR_FAILURE}
+        echo -n $"FAILED"
+    else
+        ${SETCOLOR_WARNING}
+        echo -n $"WARNING"
+    fi
+    ${SETCOLOR_NORMAL}
+    echo -n "]"
+    echo 
+}
+
+
+install_dns () {
+    if [ $ID = 'centos' -o $ID = 'rocky' ];then
+        yum install -y  bind bind-utils
+    elif [ $ID = 'ubuntu' ];then
+        apt update
+        apt install -y bind9 bind9-utils bind9-host bind9-dnsutils
+    else
+        color "不支持此操作系统，退出!" 1
+        exit
+    fi
+    
+}
+
+config_dns () {
+    if [ $ID = 'centos' -o $ID = 'rocky' ];then
+        sed -i -e '/listen-on/s/127.0.0.1/localhost/' -e '/allow-query/s/localhost/any/' -e 's/dnssec-enable yes/dnssec-enable no/' -e 's/dnssec-validation yes/dnssec-validation no/'  /etc/named.conf
+        cat >>  /etc/named.rfc1912.zones <<EOF
+zone "$DOMAIN" IN {
+    type master;
+    file  "$DOMAIN.zone";
+};
+EOF
+        cat > /var/named/$DOMAIN.zone <<EOF
+\$TTL 1D
+@       IN SOA  master admin (
+                                        1       ; serial
+                                        1D      ; refresh
+                                        1H      ; retry
+                                        1W      ; expire
+                                        3H )    ; minimum
+        NS       master
+master  A        ${LOCALHOST}         
+EOF
+        echo "$HOST_LIST" | while read line; do 
+            awk '{print $1,"\tA\t",$2}' 
+        done >> /etc/bind/$DOMAIN.zone
+
+        chmod 640 /var/named/$DOMAIN.zone
+        chgrp named /var/named/$DOMAIN.zone
+    elif [ $ID = 'ubuntu' ];then
+        sed -i 's/dnssec-validation auto/dnssec-validation no/' /etc/bind/named.conf.options
+        cat >>  /etc/bind/named.conf.default-zones <<EOF
+zone "$DOMAIN" IN {
+    type master;
+    file  "/etc/bind/$DOMAIN.zone";
+};
+EOF
+        cat > /etc/bind/$DOMAIN.zone <<EOF
+\$TTL 1D
+@       IN SOA  master admin (
+                                        1       ; serial
+                                        1D      ; refresh
+                                        1H      ; retry
+                                        1W      ; expire
+                                        3H )    ; minimum
+        NS       master
+master  A        ${LOCALHOST}         
+EOF
+        echo "$HOST_LIST" | while read line; do
+            awk '{print $1,"\tA\t",$2}' 
+        done >> /etc/bind/$DOMAIN.zone
+
+        chgrp bind  /etc/bind/$DOMAIN.zone
+    else
+        color "不支持此操作系统，退出!" 1
+        exit
+    fi
+}
+
+start_service () {
+    systemctl enable named
+    systemctl restart named
+    systemctl is-active named.service
+    if [ $? -eq 0 ] ;then 
+        color "DNS 服务安装成功!" 0  
+    else
+        color "DNS 服务安装失败!" 1
+    exit 1
+    fi   
+}
+
+install_dns
+
+config_dns
+
+start_service
+```
+
+SRV 记录
+
+- SRV记录是服务器资源记录的缩写，记录服务器提供的服务，SRV记录的作用是说明一个服务器能够提供什么样的服务。
+- 在RFC2052中才对SRV记录进行了定义，很多老版本的DNS服务器并不支持SRV记录。
+- SRV 资源记录允许为单个域名使用多个服务器，轻松地将服务从一个主机移动到另一个主机，并将某些主机指定为服务的主服务器，将其他主机指定为备份
+- 客户端要求特定域名的特定服务/协议，并获取任何可用服务器的名称
+
+```
+RFC2782中对于SRV的定义格式是：
+_<Service>._<Proto>.<Name> TTL Class SRV Priority Weight Port Target
+
+#格式解析：
+Service 	所需服务的符号名称，在Assigned Numbers或本地定义。
+   			服务标识符前面加下划线(_)，以避免与常规出现的DNS标签发生冲突。
+Proto 		所需协议的符号名称,该名称不区分大小写。_TCP和_UDP目前是该字段最常用的值
+ 			前面加下划线_，以防止与自然界中出现的DNS标签发生冲突。
+Name   		此RR所指的域名。在这个域名下SRV RR是唯一的。
+Class 		定制DNS记录类，它主要有以下三种情况：
+			对于涉及Internet的主机名、IP地址等DNS记录，记录的CLASS设置为IN。
+ 			其他两类用的比较少，比如CS(CSNET类)、CH(CHAOS类)、HS(Hesiod)等。
+ 			每个类都是一个独立的名称空间，其中DNS区域的委派可能不同。
+Port 		服务在目标主机上的端口。范围是0-65535。 这是网络字节顺序中的16位无符号整数。
+Target 		目标主机的域名。域名必须有一个或多个地址记录，域名绝不能是别名。
+ 			敦促（但不强求）实现在附加数据部分中返回地址记录。
+ 			值为"." 表示该域名明确无法提供该服务。
+```
+
+```
+https://prometheus.io/blog/2015/06/01/advanced-service-discovery/#discovery-with-dns-srv-records
+```
+
+```bash
+#官方配置实例
+
+#定制job对象
+job {
+  name: "api-server"
+  sd_name: "telemetry.eu-west.api.srv.example.org"
+  metrics_path: "/metrics"
+}
+
+#定制解析记录
+scrape_configs:
+- job_name: 'myjob'
+
+  dns_sd_configs:
+  - names:
+    - 'telemetry.eu-west.api.srv.example.org'
+    - 'telemetry.us-west.api.srv.example.org'
+    - 'telemetry.eu-west.auth.srv.example.org'
+    - 'telemetry.us-east.auth.srv.example.org'
+
+  relabel_configs:
+  - source_labels: ['__meta_dns_name']
+    regex:         'telemetry\.(.+?)\..+?\.srv\.example\.org'
+    target_label:  'zone'
+    replacement:   '$1'
+  - source_labels: ['__meta_dns_name']
+    regex:         'telemetry\..+?\.(.+?)\.srv\.example\.org'
+    target_label:  'job'
+    replacement:   '$1'
+```
+
+**DNS服务发现案例**
+
+```bash
+[root@ubuntu2404 ~]#cat /etc/bind/kang.org.zone
+$TTL 1D
+@       IN SOA  master admin (
+                                        1       ; serial
+                                        1D      ; refresh
+                                        1H      ; retry
+                                        1W      ; expire
+                                        3H )    ; minimum
+        NS       master
+master  A       10.0.0.200         
+node1   A       10.0.0.200
+node2   A       10.0.0.201
+node3   A       10.0.0.202
+flask   A       10.0.0.200
+
+
+_prometheus._tcp.kang.org. 1H IN SRV 10 10 9100 node1.kang.org.
+_prometheus._tcp.kang.org. 1H IN SRV 10 10 9100 node2.kang.org.
+_prometheus._tcp.kang.org. 1H IN SRV 10 10 9100 node3.kang.org.
+```
+
+```bash
+[root@ubuntu2404 ~]#cat /etc/bind/kang.org.zone
+$TTL 1D
+@       IN SOA  master admin (
+                                        1       ; serial
+                                        1D      ; refresh
+                                        1H      ; retry
+                                        1W      ; expire
+                                        3H )    ; minimum
+        NS       master
+master  A       10.0.0.200         
+node1   A       10.0.0.200
+node2   A       10.0.0.201
+node3   A       10.0.0.202
+flask   A       10.0.0.200
+
+
+_prometheus._tcp 1H IN SRV 10 10 9100 node1
+_prometheus._tcp 1H IN SRV 10 10 9100 node2
+_prometheus._tcp 1H IN SRV 10 10 9100 node3
+```
+
+```bash
+[root@ubuntu2404 ~]#dig srv _prometheus._tcp.kang.org
+
+; <<>> DiG 9.18.30-0ubuntu0.24.04.2-Ubuntu <<>> srv _prometheus._tcp.kang.org
+;; global options: +cmd
+;; Got answer:
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 2650
+;; flags: qr rd ra; QUERY: 1, ANSWER: 3, AUTHORITY: 0, ADDITIONAL: 4
+
+;; OPT PSEUDOSECTION:
+; EDNS: version: 0, flags:; udp: 65494
+;; QUESTION SECTION:
+;_prometheus._tcp.kang.org.     IN      SRV
+
+;; ANSWER SECTION:
+_prometheus._tcp.kang.org. 3600 IN      SRV     10 10 9100 node3.kang.org.
+_prometheus._tcp.kang.org. 3600 IN      SRV     10 10 9100 node1.kang.org.
+_prometheus._tcp.kang.org. 3600 IN      SRV     10 10 9100 node2.kang.org.
+
+;; ADDITIONAL SECTION:
+node1.kang.org.         86400   IN      A       10.0.0.200
+node2.kang.org.         86400   IN      A       10.0.0.201
+node3.kang.org.         86400   IN      A       10.0.0.202
+
+;; Query time: 0 msec
+;; SERVER: 127.0.0.53#53(127.0.0.53) (UDP)
+;; WHEN: Thu Mar 06 15:35:51 CST 2025
+;; MSG SIZE  rcvd: 222
+```
+
+```yaml
+#添加下面行
+- job_name: 'dns_sd_flask'  # 实现单个主机定制的信息解析，也支持DNS或/etc/hosts文件实现解析
+  dns_sd_configs:
+    - names: ['flask.kang.org']
+      type: A  # 指定记录类型，默认SRV
+      port: 8000  # 不是SRV时，需要指定Port号
+      refresh_interval: 10s
+
+- job_name: 'dns_sd_node_exporter'  # 实现批量主机解析
+  dns_sd_configs:
+    - names: ['_prometheus._tcp.kang.org']  # SRV记录必须通过DNS的实现
+      refresh_interval: 10s  # 指定DNS资源记录的刷新间隔, 默认30s
+```
+
+```bash
+[root@ubuntu2404 ~]#cat /usr/local/prometheus/conf/prometheus.yml
+# my global config
+global:
+  scrape_interval: 15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+  evaluation_interval: 15s # Evaluate rules every 15 seconds. The default is every 1 minute.
+  # scrape_timeout is set to the global default (10s).
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - 10.0.0.200:9093
+          # - alertmanager:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+rule_files:
+    - "../rules/*.yml"
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+# A scrape configuration containing exactly one endpoint to scrape:
+# Here it's Prometheus itself.
+scrape_configs:
+  # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+    # metrics_path defaults to '/metrics'
+    # scheme defaults to 'http'.
+- job_name: 'dns_sd_flask'  # 实现单个主机定制的信息解析，也支持DNS或/etc/hosts文件实现解析
+  dns_sd_configs:
+    - names: ['flask.kang.org']
+      type: A  # 指定记录类型，默认SRV
+      port: 8000  # 不是SRV时，需要指定Port号
+      refresh_interval: 10s
+
+- job_name: 'dns_sd_node_exporter'  # 实现批量主机解析
+  dns_sd_configs:
+    - names: ['_prometheus._tcp.kang.org']  # SRV记录必须通过DNS的实现
+      refresh_interval: 10s  # 指定DNS资源记录的刷新间隔, 默认30s
+```
+
+```bash
+#修改完DNS服务器配置文件，需要清理下DNS缓存
+[root@ubuntu2404 ~]#systemctl restart systemd-resolved.service 
+```
+
+```bash
+[root@ubuntu2404 ~]#cat /usr/local/prometheus/conf/prometheus.yml
+# my global config
+global:
+  scrape_interval: 15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+  evaluation_interval: 15s # Evaluate rules every 15 seconds. The default is every 1 minute.
+  # scrape_timeout is set to the global default (10s).
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - 10.0.0.200:9093
+          # - alertmanager:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+rule_files:
+    - "../rules/*.yml"
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+# A scrape configuration containing exactly one endpoint to scrape:
+# Here it's Prometheus itself.
+scrape_configs:
+  # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+    # metrics_path defaults to '/metrics'
+    # scheme defaults to 'http'.
+- job_name: 'dns_sd_flask'  # 实现单个主机定制的信息解析，也支持DNS或/etc/hosts文件实现解析
+  dns_sd_configs:
+    - names: ['flask.kang.org']
+      type: A  # 指定记录类型，默认SRV
+      port: 8000  # 不是SRV时，需要指定Port号
+      refresh_interval: 10s
+
+- job_name: 'dns_sd_node_exporter'  # 实现批量主机解析
+  dns_sd_configs:
+    - names: ['_prometheus._tcp.kang.org']  # SRV记录必须通过DNS的实现
+      refresh_interval: 10s  # 指定DNS资源记录的刷新间隔, 默认30s
+  relabel_configs:
+  - source_labels: ['__meta_dns_name']
+    regex:         '(.+?)\.kang\.org'
+    target_label:  'server'
+    replacement:   '$1'
+  - source_labels: ['__meta_dns_name']
+    regex:         '(.+?)\.kang\.org'
+    target_label:  'server'
+    replacement:   '$1'
+```
+
+
+
+### **Consul** **服务发现**
+
+服务间的通信成为了迈向微服务大门的第一道难关：
+
+- ServiceA 如何知道 ServiceB 在哪里
+- ServiceB 可能会有多个副本提供服务，其中有些可能会挂掉，如何避免访问到"不健康的"的 ServiceB
+- 如何控制只有 ServiceA 可以访问到 ServiceB
+
+
+
+![image-20250306161522419](5day-png/34consul服务发现工作原理.png)
+
+Consul 是HashiCorp 公司开发的一种服务网格解决方案，使团队能够管理服务之间以及跨本地和多云环境和运行时的安全网络连接。
+
+Consul 提供服务发现、服务网格、流量管理和网络基础设施设备的自动更新
+
+Consul是一个用来实现分布式系统的服务发现与配置的开源工具
+
+Consul采用golang开发
+
+Consul具有高可用和横向扩展特性。
+
+Consul的一致性协议采用更流行的Raft 算法（Paxos的简单版本），用来保证服务的高可用
+
+Consul 使用 GOSSIP 协议（P2P的分布式协议去中心化结构下，通过将信息部分传递，达到全集群的状态信息传播,和 Raft 目标是强一致性不同，Gossip 达到的是最终一致性）管理成员和广播消息, 并且支持 ACL 访问控制
+
+Consul 自带一个Web UI管理系统， 可以通过参数启动并在浏览器中直接查看信息。
+
+Consul 提供了一个控制平面，使您能够注册、查询和保护跨网络部署的服务。控制平面是网络基础结构的一部分，它维护一个中央注册表来跟踪服务及其各自的 IP 地址。它是一个分布式系统，在节点集群上运行，例如物理服务器、云实例、虚拟机或容器。
+
+官网：
+
+```
+https://www.consul.io/
+```
+
+Consul 关键特性：
+
+- service discovery：consul通过DNS或者HTTP接口实现服务注册和服务发现
+- health checking：健康检测使consul可以快速的告警在集群中的操作。和服务发现的集成，可以防止服务转发到故障的服务上面。
+- key/value storage：一个用来存储动态配置的系统。提供简单的HTTP接口，可以在任何地方操作
+- multi-datacenter：无需复杂的配置，即可支持任意数量的区域
+
+**Prometheus 基于的Consul服务发现过程：**
+
+<img src="5day-png/34Prometheus 基于的Consul服务发现过程.png" alt="image-20250306160925517" style="zoom:50%;" />
+
+- 安装并启动 Consul 服务
+- 在Prometheus的配置中关联 Consul服务发现
+- 新增服务节点向Consul进行注册
+- Prometheus 自动添加新增的服务节点的Target
+
+#### 安装
+
+```bash
+#官方仓库安装
+wget -O - https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+sudo apt update && sudo apt install consul
+```
+
+```bash
+#二进制安装
+https://developer.hashicorp.com/consul/install?product_intent=consul
+[root@ubuntu2404 ~]#ls 
+consul_1.20.4_linux_amd64.zip 
+[root@ubuntu2404 ~]#unzip consul_1.20.4_linux_amd64.zip -d /usr/local/bin/
+Archive:  consul_1.20.4_linux_amd64.zip
+  inflating: /usr/local/bin/LICENSE.txt  
+  inflating: /usr/local/bin/consul   
+[root@ubuntu2404 ~]#ls /usr/local/bin/
+consul  LICENSE.txt  prometheus  promtool  pushgateway
+[root@ubuntu2404 ~]#ldd /usr/local/bin/consul 
+        not a dynamic executable
+#Bash可能缓存了/usr/bin/consul，导致它一直尝试在 /usr/bin/ 下找 consul。清除缓存：
+[root@ubuntu2404 ~]#hash -r
+[root@ubuntu2404 ~]#consul version
+Consul v1.20.4
+Revision 9e308779
+Build Date 2025-02-20T12:49:28Z
+Protocol 2 spoken by default, understands 2 to 3 (agent will automatically use protocol >2 when speaking to compatible agents)
+#实现consul命令自动补全
+[root@ubuntu2404 ~]#consul -autocomplete-install
+
+#创建用户
+[root@ubuntu2404 ~]#useradd -s /sbin/nologin consul
+useradd: user 'consul' already exists
+[root@ubuntu2404 ~]#id consul 
+uid=996(consul) gid=988(consul) groups=988(consul)
+
+#创建目录
+[root@ubuntu2404 ~]#mkdir -p /data/consul /etc/consul.d
+[root@ubuntu2404 ~]#chown -R consul:consul /data/consul /etc/consul.d
+
+#以server模式启动服务cosnul agent
+[root@ubuntu2404 ~]#/usr/local/bin/consul agent -server -ui -bootstrap-expect=1 -data-dir=/data/consul -node=consul -client=0.0.0.0 -config-dir=/etc/consul.d
+
+-server  			#定义agent运行在server模式
+-bootstrap-expect 	#在一个datacenter中期望提供的server节点数目，当该值提供的时候，consul一直等到达到指定server数目的时候才会引导整个集群，该标记不能和bootstrap共用
+-bind：		#该地址用来在集群内部的通讯，集群内的所有节点到地址都必须是可达的，默认是0.0.0.0
+-node：		#节点在集群中的名称，在一个集群中必须是唯一的，默认是该节点的主机名
+-ui    		#提供web ui的http功能
+-rejoin 	#使consul忽略先前的离开，在再次启动后仍旧尝试加入集群中。
+-config-dir #配置文件目录，里面所有以.json结尾的文件都会被加载
+-client  	#consul服务侦听地址，这个地址提供HTTP、DNS、RPC等服务，默认是127.0.0.1:8500，要对外提供服务改成0.0.0.0
+```
+
+```bash
+#创建service文件
+[root@ubuntu2404 ~]#vim /lib/systemd/system/consul.service 
+[Unit]
+Description="HashiCorp Consul - A service mesh solution"
+Documentation=https://www.consul.io/
+Requires=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=consul
+Group=consul
+ExecStart=/usr/local/bin/consul agent -server -bind=10.0.0.200 -ui -bootstrap-expect=1 -data-dir=/data/consul -node=consul -client=0.0.0.0 -config-dir=/etc/consul.d
+#ExecReload=/bin/kill --signal HUP \$MAINPID
+KillMode=process
+KillSignal=SIGTERM
+Restart=on-failure
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+
+
+[root@ubuntu2404 ~]#systemctl daemon-reload && systemctl enable --now consul.service 
+```
+
+#### 脚本安装
+
+```bash
+[root@ubuntu2404 ~]#cat install_consul.sh 
+#!/bin/bash
+#
+#支持在线和离线下载安装
+
+CONSUL_VERSION=1.20.4
+#CONSUL_VERSION=1.20.1
+#CONSUL_VERSION=1.19.2
+#CONSUL_VERSION=1.19.0
+#CONSUL_VERSION=1.18.0
+#CONSUL_VERSION=1.15.0
+#CONSUL_VERSION=1.13.3
+#CONSUL_VERSION=1.10.2
+
+CONSUL_FILE=consul_${CONSUL_VERSION}_linux_amd64.zip
+
+CONSUL_URL=https://releases.hashicorp.com/consul/${CONSUL_VERSION}/${CONSUL_FILE}
+
+CONSUL_DATA=/data/consul
+
+LOCAL_IP=`hostname -I|awk '{print $1}'`
+
+
+msg_error() {
+  echo -e "\033[1;31m$1\033[0m"
+}
+
+msg_info() {
+  echo -e "\033[1;32m$1\033[0m"
+}
+
+msg_warn() {
+  echo -e "\033[1;33m$1\033[0m"
+}
+
+color () {
+
+    RES_COL=60
+    MOVE_TO_COL="echo -en \\033[${RES_COL}G"
+    SETCOLOR_SUCCESS="echo -en \\033[1;32m"
+    SETCOLOR_FAILURE="echo -en \\033[1;31m"
+    SETCOLOR_WARNING="echo -en \\033[1;33m"
+    SETCOLOR_NORMAL="echo -en \E[0m"
+    echo -n "$1" && $MOVE_TO_COL
+    echo -n "["
+    if [ $2 = "success" -o $2 = "0" ] ;then
+        ${SETCOLOR_SUCCESS}
+        echo -n $"  OK  "    
+    elif [ $2 = "failure" -o $2 = "1"  ] ;then 
+        ${SETCOLOR_FAILURE}
+        echo -n $"FAILED"
+    else
+        ${SETCOLOR_WARNING}
+        echo -n $"WARNING"
+    fi
+    ${SETCOLOR_NORMAL}
+    echo -n "]"
+    echo 
+
+}
+
+install_consul () {
+
+    if [ ! -f  ${CONSUL_FILE} ] ;then
+        wget  ${CONSUL_URL}  ||  { color "下载失败!" 1 ; exit ; }
+    fi
+
+    unzip ${CONSUL_FILE} -d /usr/local/bin/
+
+    useradd -s /sbin/nologin consul
+
+    mkdir -p ${CONSUL_DATA} /etc/consul.d
+
+    chown -R consul:consul ${CONSUL_DATA} /etc/consul.d
+
+}
+
+service_consul () {
+
+cat <<EOF > /lib/systemd/system/consul.service
+[Unit]
+Description="HashiCorp Consul - A service mesh solution"
+Documentation=https://www.consul.io/
+Requires=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=consul
+Group=consul
+ExecStart=/usr/local/bin/consul agent -server -ui -bootstrap-expect=1 -data-dir=${CONSUL_DATA} -node=consul -bind=${LOCAL_IP} -client=0.0.0.0 -config-dir=/etc/consul.d
+ExecReload=/bin/kill --signal HUP \$MAINPID
+KillMode=process
+KillSignal=SIGTERM
+Restart=on-failure
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable --now consul.service
+
+}
+
+
+start_consul() { 
+
+    systemctl is-active consul
+
+    if [ $?  -eq 0 ];then  
+        echo 
+        color "Consul 安装完成!" 0
+        echo "-------------------------------------------------------------------"
+        echo -e "访问链接: \c"
+        msg_info "http://${LOCAL_IP}:8500/" 
+    else
+        color "Consul 安装失败!" 1
+        exit
+    fi 
+}
+
+
+
+install_consul
+
+service_consul
+
+start_consul
+
+```
+
+Docker compose 部署 consul
+
+```bash
+version: '3.6'
+
+volumes:
+  consul_data: {}
+
+networks:
+  monitoring:
+    driver: bridge
+
+services:
+  consul:
+    image: consul:1.14
+    volumes:
+      - ./consul_configs:/consul/config
+      - consul_data:/consul/data/
+    networks:
+      - monitoring
+    ports:
+      - 8500:8500
+    command: 
+      - "consul"
+      - "agent"
+      - "-dev"
+      - "-bootstrap"
+      - "-config-dir"
+      - "/consul/config"
+      - "-data-dir"
+      - "/consul/data"
+      - "-ui"
+      - "-log-level"
+      - "INFO"
+      - "-bind"
+      - "127.0.0.1"
+      - "-client"
+      - "0.0.0.0"
+```
+
+```json
+#准备配置文件
+{
+  "services": [
+    {
+      "id": "node_exporter-prometheus",
+      "name": "prometheus-server",
+      "address": "prometheus.kang.org",
+      "port": 9100,
+      "tags": ["nodes"],
+      "checks": [
+        {
+          "http": "http://prometheus.kang.org:9100/metrics",
+          "interval": "5s"
+        }
+      ]
+    },
+    {
+      "id": "node_exporter-node01",
+      "name": "server01.kang.org",
+      "address": "server01.kang.org",
+      "port": 9100,
+      "tags": ["nodes"],
+      "checks": [
+        {
+          "http": "http://server01.kang.org:9100/metrics",
+          "interval": "5s"
+        }
+      ]
+    },
+    {
+      "id": "node_exporter-node02",
+      "name": "server02.kang.org",
+      "address": "server02.kang.org",
+      "port": 9100,
+      "tags": ["nodes"],
+      "checks": [
+        {
+          "http": "http://server02.kang.org:9100/metrics",
+          "interval": "5s"
+        }
+      ]
+    },
+    {
+      "id": "node_exporter-node03",
+      "name": "server03.kang.org",
+      "address": "server03.kang.org",
+      "port": 9100,
+      "tags": ["nodes"],
+      "checks": [
+        {
+          "http": "http://server03.kang.org:9100/metrics",
+          "interval": "5s"
+        }
+      ]
+    }
+  ]
+}
+
+```
+
+#### **Consul** **自动注册和删除服务**
+
+```bash
+#列出数据中心
+curl http://10.0.0.200:8500/v1/catalog/datacenters
+
+#列出节点
+curl http://10.0.0.200:8500/v1/catalog/nodes
+
+#列出服务
+curl http://10.0.0.200:8500/v1/catalog/services
+
+#指定节点状态
+curl http://10.0.0.200:8500/v1/health/node/node2
+
+#列出服务节点
+curl http://10.0.0.200:8500/v1/catalog/service/<service_id>   
+
+#提交Json格式的数据进行注册服务
+[root@ubuntu2404 ~]#curl -X PUT -d '{"id": "myservice-id","name": "myservice","address": "10.0.0.201","port": 9100,"tags": ["service"],"checks": [{"http": "http://10.0.0.201:9100/","interval": "5s"}]}' http://10.0.0.200:8500/v1/agent/service/register
+
+[root@ubuntu2404 ~]#curl http://10.0.0.200:8500/v1/catalog/services
+{"consul":[],"myservice":["service"]}
+
+#也可以将注册信息保存在json格式的文件中，再执行下面命令注册
+[root@ubuntu2404 ~]#vim nodes.json 
+{
+  "id": "myservice-id",
+  "name": "myservice2",
+  "address": "10.0.0.201",
+  "port": 9100,
+  "tags": [
+    "service"
+  ],
+  "checks": [
+    {
+      "http": "http://10.0.0.201:9100/",
+      "interval": "5s"
+    }
+  ]
+}
+[root@ubuntu2404 ~]#curl -X PUT --data @nodes.json http://10.0.0.200:8500/v1/agent/service2/register
+
+#删除服务，注意：集群模式下需要在service_id所有在主机节点上执行才能删除该service
+[root@ubuntu2404 ~]#curl -X PUT http://10.0.0.200:8500/v1/agent/service/deregister/myservice-id
+```
+
+```json
+[root@ubuntu2404 ~]#cat service.json 
+{
+  "services": [
+    {
+      "id": "myservice1-id",
+      "name": "myservice1",
+      "address": "10.0.0.200",
+      "port": 9100,
+      "tags": ["node_exporter"],
+      "checks": [
+        {
+          "http": "http://10.0.0.200:9100/metrics",
+          "interval": "5s"
+        }
+      ]
+    },
+    {
+      "id": "myservice2-id",
+      "name": "myservice2",
+      "address": "10.0.0.201",
+      "port": 9100,
+      "tags": ["node_exporter"],
+      "checks": [
+        {
+          "http": "http://10.0.0.201:9100/metrics",
+          "interval": "5s"
+        }
+      ]
+    }
+  ]
+}
+```
+
+```bash
+#注册服务
+[root@ubuntu2404 ~]#consul services register service.json
+Node name "ubuntu2404.wang.org" will not be discoverable via DNS due to invalid characters. Valid characters include all alpha-numerics and dashes.
+Registered service: myservice1
+Registered service: myservice2
+#注销服务
+[root@ubuntu2404 ~]#consul services deregister -id myservice2-id
+Deregistered service: myservice2-id
+```
+
+
+
+
+
+#### **配置** **Prometheus** **使用** **Consul** **服务发现**
+
+ 默认情况下，当Prometheus加载Target实例完成后，这些Target时候都会包含一些默认的标签：
+
+```bash
+__address__ 		#当前Target实例的访问地址<host>:<port>
+__scheme__ 			#采集目标服务访问地址的HTTP Scheme，HTTP或者HTTPS
+__metrics_path__ 	#采集目标服务访问地址的访问路径
+__param_<name> 		#采集任务目标服务的中包含的请求参数
+```
+
+通过Consul动态发现的服务实例还会包含以下Metadata标签信息：
+
+```bash
+__meta_consul_address         #consul地址
+__meta_consul_dc              #consul中服务所在的数据中心
+__meta_consulmetadata         #服务的metadata
+__meta_consul_node            #服务所在consul节点的信息
+__meta_consul_service_address #服务访问地址
+__meta_consul_service_id      #服务ID
+__meta_consul_service_port    #服务端口
+__meta_consul_service         #服务名称
+__meta_consul_tags            #服务包含的标签信息
+```
+
+```bash
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+
+  - job_name: 'consul'
+    honor_labels: true  # 如果标签冲突，覆盖 Prometheus 添加的标签，保留原标签
+    consul_sd_configs:
+      - server: '10.0.0.200:8500'
+        services: []  # 指定需要发现的 service 名称，默认为所有 service
+        # tags:       # 可以过滤具有指定 tag 的 service
+        # - "service"
+        # refresh_interval: 2m  # 刷新时间间隔，默认 30s
+
+    relabel_configs:
+      - source_labels: ['__meta_consul_service']  # 生成新的标签名
+        target_label: 'consul_service'
+      - source_labels: ['__meta_consul_dc']  # 生成新的标签名
+        target_label: 'datacenter'
+      - source_labels: ['__meta_consul_tags']  # 生成新的标签名
+        target_label: 'app'
+      - source_labels: ['__meta_consul_service']  # 删除 consul 内置 service（不提供 metrics）
+        regex: "consul"
+        action: drop
+ 
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+```
+
+
+
+#### 集群部署
+
+![image-20250306173545263](5day-png/34consul集群部署.png)
+
+```bash
+-server    	#使用server 模式运行consul 服务,consul支持以server或client的模式运行, server是服务发现模块的核心, client主要用于转发请求
+-bootstrap 	#首次部署使用初始化模式
+-bostrap-expect 2 #集群至少两台服务器，才能选举集群leader,默认值为3
+-bind 		#该地址用来在集群内部的通讯，集群内的所有节点到地址都必须是可达的，默认是0.0.0.0,有多个IP需要手动指定,否则可能会出错
+-client 	#设置客户端访问的监听地址,此地址提供HTTP、DNS、RPC等服务，默认是127.0.0.1
+-data-dir 	#指定数据保存路径
+-ui 		#运行 web 控制台,监听8500/tcp端口
+-node 		#此节点的名称,群集中必须唯一
+-datacenter=dc1 	#数据中心名称，默认是dc1
+-retry-join 		#指定要加入的集群中已有consul节点的地址，失败会重试, 可多次指定不同的地址,代替旧版本中的-join选项
+```
+
+范例:
+
+```bash
+#node1:
+consul agent -server -bind=10.0.0.200 -client=0.0.0.0 -data-dir=/data/consul -node=node1 -ui -bootstrap
+
+#node2:
+consul agent -server -bind=10.0.0.201 -client=0.0.0.0 -data-dir=/data/consul -node=node2 -retry-join=10.0.0.200 -ui -bootstrap-expect 2
+
+#node3:
+consul agent -server -bind=10.0.0.202 -client=0.0.0.0 -data-dir=/data/consul -node=node3 -retry-join=10.0.0.200 -ui -bootstrap-expect 2
+```
+
+```bash
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+
+  - job_name: 'consul'
+    honor_labels: true  # 如果标签冲突，覆盖 Prometheus 添加的标签，保留原标签
+    consul_sd_configs:
+      - server: '10.0.0.200:8500'
+        services: []  # 指定需要发现的 service 名称，默认为所有 service
+        # tags:       # 可以过滤具有指定 tag 的 service
+        # - "service"
+        # refresh_interval: 2m  # 刷新时间间隔，默认 30s
+      - server: '10.0.0.201:8500'  # 添加其它节点，实现冗余
+      - server: '10.0.0.202:8500'  # 添加其它节点，实现冗余
+
+    relabel_configs:
+      - source_labels: ['__meta_consul_service']  # 生成新的标签名
+        target_label: 'consul_service'
+      - source_labels: ['__meta_consul_dc']  # 生成新的标签名
+        target_label: 'datacenter'
+      - source_labels: ['__meta_consul_tags']  # 生成新的标签名
+        target_label: 'app'
+      - source_labels: ['__meta_consul_service']  # 删除 consul 内置 service（不提供 metrics）
+        regex: "consul"
+        action: drop
+ 
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+```
+
+## 各种 Exporter
+
+```
+https://prometheus.io/docs/instrumenting/exporters/
+```
+
+
+
+### Node Exporter 监控服务
+
+```
+[root@ubuntu2404 ~]#/usr/local/node_exporter/bin/node_exporter --help
+
+--collector.systemd               #显示当前系统中所有的服务状态信息
+--collector.systemd.unit-include  #仅仅显示符合条件的systemd服务条目
+--collector.systemd.unit-exclude  #显示排除列表范围之外的服务条目
+
+#注意：
+上面三条仅显示已安装的服务条目，没有安装的服务条目是不会被显示的。
+而且后面两个属性是依赖于第一条属性的
+这些信息会被显示在 node_systemd_unit_state对应的metrics中
+```
+
+**修改** **node_exporter** **的配置文件**
+
+```bash
+[root@ubuntu2404 ~]#cat /lib/systemd/system/node_exporter.service
+[Unit]
+Description=Prometheus Node Exporter
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/node_exporter/bin/node_exporter --collector.systemd --collector.systemd.unit-include=".*(ssh|mysql|node_exporter|nginx).*"
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+User=prometheus
+Group=prometheus
+
+[Install]
+WantedBy=multi-user.target
+
+#属性解析：
+如果没有提前安装的服务，是不会被查看到的
+服务名称的正则符号必须解析正确，否则无法匹配要现实的服务名称
+[root@ubuntu2404 ~]#systemctl daemon-reload && systemctl restart node_exporter.service 
+```
+
+**修改** **Prometheus** **配置**
+
+```bash
+#修改prometheus的配置文件，让它自动过滤文件中的节点信息
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+...
+  - job_name: "node_exporter"
+    static_configs:
+      - targets:
+        - "10.0.0.201:9100"
+        - "10.0.0.200:9100"
+...
+
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+```
+
+
+
+### MySQL 监控
+
+```bash
+https://github.com/prometheus/mysqld_exporter
+```
+
+**案例：二进制安装**
+
+```bash
+#安装mysql数据库
+[root@ubuntu2404 ~]#apt update && apt install mysql-server -y
+
+#更新mysql配置，如果MySQL和MySQL exporter 不在同一个主机，需要修改如下配置
+sed -i 's#127.0.0.1#0.0.0.0#' /etc/mysql/mysql.conf.d/mysqld.cnf
+systemctl restart mysql
+
+#为mysqld_exporter配置获取数据库信息的用户并授权
+mysql> CREATE USER 'exporter'@'10.0.0.200' IDENTIFIED BY '123456';
+mysql> GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'10.0.0.200';
+mysql> flush privileges;
+
+
+#二进制安装mysqld_exporter
+[root@ubuntu2404 ~]#ls
+mysqld_exporter-0.17.2.linux-amd64.tar.gz
+[root@ubuntu2404 ~]#tar xfv mysqld_exporter-0.17.2.linux-amd64.tar.gz -C /usr/local/
+mysqld_exporter-0.17.2.freebsd-amd64/
+mysqld_exporter-0.17.2.freebsd-amd64/LICENSE
+mysqld_exporter-0.17.2.freebsd-amd64/mysqld_exporter
+mysqld_exporter-0.17.2.freebsd-amd64/NOTICE
+[root@ubuntu2404 ~]#cd /usr/local/
+[root@ubuntu2404 local]#ln -s mysqld_exporter-0.17.2.linux-amd64/ mysqld_exporter
+[root@ubuntu2404 local]#cd mysqld_exporter
+[root@ubuntu2404 mysqld_exporter]#ls
+LICENSE  mysqld_exporter  NOTICE
+[root@ubuntu2404 mysqld_exporter]#mkdir bin
+[root@ubuntu2404 mysqld_exporter]#mv mysqld_exporter bin/
+#用service启动
+id prometheus &> /dev/null || useradd -r -s /sbin/nologin prometheus
+#在mysqld_exporter的服务目录下，创建 .my.cnf 隐藏文件，为mysqld_exporter配置获取数据库信息的基本属性
+[root@ubuntu2404 ~]#cat /usr/local/mysqld_exporter/.my.cnf
+[client]
+host=10.0.0.200
+port=3306
+user=exporter
+password=123456
+
+#创建service文件
+
+[root@ubuntu2404 ~]#vim /lib/systemd/system/mysqld_exporter.service
+[Unit]
+Description=mysqld exporter project
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/mysqld_exporter/bin/mysqld_exporter --config.my-cnf="/usr/local/mysqld_exporter/.my.cnf"
+Restart=on-failure
+User=prometheus
+Group=prometheus
+
+[Install]
+WantedBy=multi-user.target
+
+
+systemctl daemon-reload
+systemctl enable --now mysqld_exporter.service
+systemctl status mysqld_exporter.service
+
+[root@ubuntu2404 mysqld_exporter]#ss -tnulp | grep 9104
+tcp   LISTEN 0      4096                                 *:9104             *:*    users:(("mysqld_exporter",pid=19619,fd=3))   
+```
+
+**修改** **Prometheus** **配置**
+
+```bash
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+scrape_configs:
+...
+  - job_name: "mysql_exporter"
+    static_configs:
+      - targets: 
+        - "10.0.0.200:9104"
+        
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+```
+
+**Grafana** **图形展示**
+
+17320 中文版
+
+**docker**
+
+**1. 目录结构**
+
+```
+[root@ubuntu2204 mysql]# tree
+.
+├── docker-compose.yml  # docker-compose 配置文件
+└── mysql
+    └── docker.cnf  # MySQL 自定义配置
+```
+
+------
+
+**2. MySQL 配置**
+
+**2.1 自定义 MySQL 配置**
+
+```ini
+[mysqld]
+skip-host-cache
+skip-name-resolve
+```
+
+- 关闭主机缓存 (`skip-host-cache`)
+- 关闭 DNS 解析 (`skip-name-resolve`)，加快访问速度
+
+------
+
+**3. `docker-compose.yml` 配置**
+
+```yaml
+version: '3.6'
+volumes:
+  mysqld_data: {}
+
+networks:
+  monitoring:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
+
+services:
+  mysqld:
+    image: mysql:8.0  # 也可以使用 mysql:5.7
+    volumes:
+      - ./mysql:/etc/mysql/conf.d  # 挂载 MySQL 配置目录
+      - mysqld_data:/var/lib/mysql  # 持久化 MySQL 数据
+    environment:
+      - MYSQL_ALLOW_EMPTY_PASSWORD=true  # 允许空密码
+    networks:
+      - monitoring
+    ports:
+      - 3306:3306  # 映射 MySQL 端口
+
+  mysqld-exporter:
+    image: prom/mysqld-exporter:v0.14.0
+    command:
+      - --collect.info_schema.innodb_metrics
+      - --collect.info_schema.innodb_tablespaces
+      - --collect.perf_schema.eventsstatementssum
+      - --collect.perf_schema.memory_events
+      - --collect.global_status
+      - --collect.engine_innodb_status
+      - --collect.binlog_size
+    environment:
+      - DATA_SOURCE_NAME=exporter:exporter@(mysqld:3306)/  # 连接 MySQL
+    ports:
+      - 9104:9104  # mysqld-exporter 监听端口
+    networks:
+      - monitoring
+    depends_on:
+      - mysqld  # 依赖 MySQL 启动
+```
+
+------
+
+**4. 启动 MySQL 及 Exporter**
+
+```bash
+docker-compose up -d
+```
+
+- `-d` 让容器在后台运行
+
+------
+
+**5. 验证容器状态**
+
+```bash
+docker-compose ps
+```
+
+------
+
+**6. 检查 Exporter 日志**
+
+```bash
+docker-compose logs mysqld-exporter
+```
+
+------
+
+**7. 创建 Exporter 用户**
+
+```bash
+docker-compose exec mysqld /bin/sh
+```
+
+进入容器后：
+
+```sql
+mysql
+CREATE USER 'exporter'@'172.31.%.%' IDENTIFIED BY 'exporter';
+GRANT PROCESS, REPLICATION CLIENT ON *.* TO 'exporter'@'172.31.%.%';
+GRANT SELECT ON performance_schema.* TO 'exporter'@'172.31.%.%';
+\q
+exit
+```
+
+------
+
+**8. 测试 Exporter 指标输出**
+
+```bash
+curl http://localhost:9104/metrics
+```
+
+如果输出 Prometheus 格式的监控数据，说明 `mysqld-exporter` 运行正常。
+
+------
+
+**9. 修改 Prometheus 监控配置**
+
+编辑 `prometheus.yml`：
+
+```yaml
+- job_name: "mysqld-exporter"
+  static_configs:
+    - targets: ["mysqld-exporter服务器地址:9104"]
+```
+
+> **注意**：`mysqld-exporter服务器地址` 需改为实际 IP 或主机名。
+
+------
+
+**10. 重新加载 Prometheus**
+
+```bash
+systemctl reload prometheus
+```
+
+
+
+### Java 应用监控
+
+```
+https://github.com/prometheus/jmx_exporter
+
+https://github.com/prometheus/jmx_exporter/blob/main/examples/tomcat.yml
+```
+
+```bash
+#安装tomcat
+[root@ubuntu2404 local]#apt update && apt install tomcat10 -y
+```
+
+```bash
+#二进制安装jmx
+[root@ubuntu2404 ~]#ls
+tomcat.yml		
+jmx_prometheus_javaagent-1.1.0.jar
+
+[root@ubuntu2404 ~]#mv jmx_prometheus_javaagent-1.1.0.jar /usr/share/tomcat10/lib/
+[root@ubuntu2404 ~]#mv tomcat.yml /usr/share/tomcat10/etc/
+[root@ubuntu2404 ~]#vim /usr/share/tomcat10/bin/catalina.sh
+#添加启动代码
+....
+# -----------------------------------------------------------------------------
+
+JAVA_OPTS="-javaagent:/usr/share/tomcat10/lib/jmx_prometheus_javaagent-1.1.0.jar=9527:/usr/share/tomcat10/etc/tomcat.yml"
+
+# OS specific support.  $var _must_ be set to either true or false.
+...
+```
+
+```bash
+[root@ubuntu2404 ~]#systemctl restart tomcat10.service 
+[root@ubuntu2404 ~]#ps aux | grep jmx
+tomcat     22029 14.1  4.8 3629536 192432 ?      Ssl  19:58   0:04 /usr/lib/jvm/default-java/bin/java -Djava.util.logging.config.file=/var/lib/tomcat10/conf/logging.properties -Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager -javaagent:/usr/share/tomcat10/lib/jmx_prometheus_javaagent-1.1.0.jar=9527:/usr/share/tomcat10/etc/tomcat.yml -Djdk.tls.ephemeralDHKeySize=2048 -Djava.protocol.handler.pkgs=org.apache.catalina.webresources -Dorg.apache.catalina.security.SecurityListener.UMASK=0027 --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.util.concurrent=ALL-UNNAMED --add-opens=java.rmi/sun.rmi.transport=ALL-UNNAMED -classpath /usr/share/tomcat10/bin/bootstrap.jar:/usr/share/tomcat10/bin/tomcat-juli.jar -Dcatalina.base=/var/lib/tomcat10 -Dcatalina.home=/usr/share/tomcat10 -Djava.io.tmpdir=/tmp org.apache.catalina.startup.Bootstrap start
+```
+
+**修改** **Prometheus** **配置**
+
+```bash
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+scrape_configs:
+...
+  - job_name: "jmx_exporter"
+    static_configs:
+      - targets: 
+        - "10.0.0.200:9527"
+        
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+```
+
+**Grafana** **图形展示**
+
+```
+https://grafana.com/grafana/dashboards/9544-nifi-jmx-exporter/
+```
+
+**docker compose**
+
+**目录结构**
+
+```
+tomcat-metrics/
+├── docker-compose.yml   # Docker Compose 配置
+└── tomcat/
+    ├── context.xml      # Tomcat Manager 应用的 Context 配置
+    ├── Dockerfile       # 构建 Tomcat 监控镜像
+    ├── sources.list     # Debian 适用于 Tomcat 容器的源
+    └── tomcat-users.xml # Tomcat 用户权限配置
+```
+
+------
+
+**1. `docker-compose.yml`**
+
+```yaml
+version: '3.6'
+
+volumes:
+  tomcat_webapps: {}
+
+networks:
+  monitoring:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
+
+services:
+  tomcat:
+    build:
+      context: tomcat
+      dockerfile: Dockerfile
+    hostname: tomcat.wang.org
+    expose:
+      - 8080
+    ports:
+      - 8080:8080
+    volumes:
+      - tomcat_webapps:/usr/local/tomcat/webapps
+      - ./tomcat/tomcat-users.xml:/usr/local/tomcat/conf/tomcat-users.xml
+    networks:
+      - monitoring
+    environment:
+      TZ: Asia/Shanghai
+```
+
+- 通过 `Dockerfile` 构建 `tomcat` 服务。
+- 监听 `8080` 端口，挂载 `tomcat-users.xml` 。
+- 使用 `monitoring` 网络，子网 `172.31.0.0/24`。
+
+------
+
+**2. `tomcat/context.xml`**
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Context antiResourceLocking="false" privileged="true">
+    <CookieProcessor className="org.apache.tomcat.util.http.Rfc6265CookieProcessor"
+                     sameSiteCookies="strict"/>
+    <Manager sessionAttributeValueClassNameFilter="java\.lang\.
+        (?:Boolean|Integer|Long|Number|String)|org\.apache\.catalina\.filters\.
+        CsrfPreventionFilter\$LruCache(?:\$1)?|java\.util\.(?:Linked)?HashMap"/>
+</Context>
+```
+
+- **`privileged="true"`**：允许 Tomcat 运行管理 Web 应用（Manager）。
+- **`sameSiteCookies="strict"`**：增强 Cookie 保护。
+- **`Manager` 过滤配置**：防止反序列化攻击。
+
+------
+
+**3. `tomcat/Dockerfile`**
+
+```dockerfile
+FROM tomcat:9.0-jdk17-openjdk-slim
+
+# 替换 Debian 源
+ADD ./sources.list /etc/apt/sources.list
+
+ENV TOMCAT_SIMPLECLIENT_VERSION=0.12.0
+ENV TOMCAT_EXPORTER_VERSION=0.0.15
+
+RUN apt-get update && apt-get install -y curl && \
+    curl -L -o /usr/local/tomcat/lib/simpleclient-${TOMCAT_SIMPLECLIENT_VERSION}.jar \
+         https://search.maven.org/remotecontent?filepath=io/prometheus/simpleclient/${TOMCAT_SIMPLECLIENT_VERSION}/simpleclient-${TOMCAT_SIMPLECLIENT_VERSION}.jar && \
+    curl -L -o /usr/local/tomcat/lib/simpleclient_common-${TOMCAT_SIMPLECLIENT_VERSION}.jar \
+         https://search.maven.org/remotecontent?filepath=io/prometheus/simpleclient_common/${TOMCAT_SIMPLECLIENT_VERSION}/simpleclient_common-${TOMCAT_SIMPLECLIENT_VERSION}.jar && \
+    curl -L -o /usr/local/tomcat/lib/simpleclient_hotspot-${TOMCAT_SIMPLECLIENT_VERSION}.jar \
+         https://search.maven.org/remotecontent?filepath=io/prometheus/simpleclient_hotspot/${TOMCAT_SIMPLECLIENT_VERSION}/simpleclient_hotspot-${TOMCAT_SIMPLECLIENT_VERSION}.jar && \
+    curl -L -o /usr/local/tomcat/lib/simpleclient_servlet-${TOMCAT_SIMPLECLIENT_VERSION}.jar \
+         https://search.maven.org/remotecontent?filepath=io/prometheus/simpleclient_servlet/${TOMCAT_SIMPLECLIENT_VERSION}/simpleclient_servlet-${TOMCAT_SIMPLECLIENT_VERSION}.jar && \
+    curl -L -o /usr/local/tomcat/lib/simpleclient_servlet_common-${TOMCAT_SIMPLECLIENT_VERSION}.jar \
+         https://search.maven.org/remotecontent?filepath=io/prometheus/simpleclient_servlet_common/${TOMCAT_SIMPLECLIENT_VERSION}/simpleclient_servlet_common-${TOMCAT_SIMPLECLIENT_VERSION}.jar && \
+    curl -L -o /usr/local/tomcat/lib/tomcat_exporter_client-${TOMCAT_EXPORTER_VERSION}.jar \
+         https://search.maven.org/remotecontent?filepath=nl/nlighten/tomcat_exporter_client/${TOMCAT_EXPORTER_VERSION}/tomcat_exporter_client-${TOMCAT_EXPORTER_VERSION}.jar && \
+    curl -L -o /usr/local/tomcat/webapps/metrics.war \
+         https://search.maven.org/remotecontent?filepath=nl/nlighten/tomcat_exporter_servlet/${TOMCAT_EXPORTER_VERSION}/tomcat_exporter_servlet-${TOMCAT_EXPORTER_VERSION}.war
+
+RUN mv /usr/local/tomcat/webapps.dist/* /usr/local/tomcat/webapps/
+
+ADD ./context.xml /usr/local/tomcat/webapps/manager/META-INF/context.xml
+```
+
+- 安装 `Prometheus` 相关 Jar 包，使 `Tomcat` 可被 `Prometheus` 监控。
+- 部署 `metrics.war`，提供 `/metrics` 监控接口。
+- 添加 `context.xml` 配置。
+
+------
+
+**4. `tomcat/sources.list`**
+
+```bash
+deb https://repo.huaweicloud.com/debian/ bullseye main non-free contrib
+deb-src https://repo.huaweicloud.com/debian/ bullseye main non-free contrib
+deb https://repo.huaweicloud.com/debian-security/ bullseye-security main
+deb-src https://repo.huaweicloud.com/debian-security/ bullseye-security main
+deb https://repo.huaweicloud.com/debian/ bullseye-updates main non-free contrib
+deb-src https://repo.huaweicloud.com/debian/ bullseye-updates main non-free contrib
+deb https://repo.huaweicloud.com/debian/ bullseye-backports main non-free contrib
+deb-src https://repo.huaweicloud.com/debian/ bullseye-backports main non-free contrib
+```
+
+- 使用 **华为云镜像** 加速 `Debian` 软件包下载。
+
+------
+
+**5. `tomcat/tomcat-users.xml`**
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<tomcat-users xmlns="http://tomcat.apache.org/xml"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:schemaLocation="http://tomcat.apache.org/xml tomcat-users.xsd"
+              version="1.0">
+    <role rolename="manager-gui"/>
+    <role rolename="manager-script"/>
+    <user username="tomcat" password="123456" roles="manager-gui,manager-script"/>
+</tomcat-users>
+```
+
+- `manager-gui` 角色允许访问 **Tomcat Web 界面**。
+- `manager-script` 角色允许访问 **Tomcat API**。
+
+------
+
+**启动容器**
+
+```
+cd tomcat-metrics
+docker-compose up -d
+```
+
+- `-d`：后台运行。
+
+------
+
+**访问服务**
+
+1. **访问 Tomcat**
+
+```
+http://localhost:8080
+```
+
+2. **访问 Tomcat Manager**
+
+```
+http://localhost:8080/manager/html
+```
+
+- **用户名**：`tomcat`
+- **密码**：`123456`
+
+3. **访问 Prometheus Metrics**
+
+```
+http://localhost:8080/metrics
+```
+
+- 这里是 **Prometheus 采集 `Tomcat` 指标的接口**。
+
+
+
+### **Redis** **监控**
+
+```
+https://github.com/oliver006/redis_exporter
+```
+
+```bash
+#redis安装
+[root@ubuntu2404 ~]#apt update && apt install redis -y
+[root@ubuntu2404 ~]#vim /etc/redis/redis.conf
+bind 0.0.0.0
+requirepass 123456
+
+[root@ubuntu2404 ~]#systemctl restart redis
+```
+
+```bash
+[root@ubuntu2404 ~]#ls 
+redis_exporter-v1.67.0.linux-amd64.tar.gz
+[root@ubuntu2404 ~]#tar xvf redis_exporter-v1.67.0.linux-amd64.tar.gz -C /usr/local/
+redis_exporter-v1.67.0.linux-amd64/
+redis_exporter-v1.67.0.linux-amd64/LICENSE
+redis_exporter-v1.67.0.linux-amd64/README.md
+redis_exporter-v1.67.0.linux-amd64/redis_exporter
+[root@ubuntu2404 ~]#cd /usr/local/
+[root@ubuntu2404 local]#ln -s redis_exporter-v1.67.0.linux-amd64/ redis_exporter
+[root@ubuntu2404 local]#cd redis_exporter/
+[root@ubuntu2404 redis_exporter]#ls
+LICENSE  README.md  redis_exporter
+[root@ubuntu2404 redis_exporter]#mkdir bin
+[root@ubuntu2404 redis_exporter]#mv redis_exporter bin/
+#用service启动
+id prometheus &> /dev/null || useradd -r -s /sbin/nologin prometheus
+#创建service文件
+vim /lib/systemd/system/redis_exporter.service
+[Unit]
+Description=redis exporter project
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/redis_exporter/bin/redis_exporter -redis.addr redis://localhost:6379 -redis.password 123456
+Restart=on-failure
+User=prometheus
+Group=prometheus
+
+[Install]
+WantedBy=multi-user.target
+
+
+[root@ubuntu2404 ~]#systemctl daemon-reload && systemctl enable --now redis_exporter.service 
+Created symlink /etc/systemd/system/multi-user.target.wants/redis_exporter.service → /usr/lib/systemd/system/redis_exporter.service.
+[root@ubuntu2404 ~]#systemctl status redis_exporter.service 
+[root@ubuntu2404 ~]#ss -tnulp | grep 9121
+tcp   LISTEN 0      4096                                 *:9121             *:*    users:(("redis_exporter",pid=23208,fd=3))
+```
+
+
+
+**修改 prometheus 配置**
+
+```bash
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+...
+  - job_name: "redis_exporter"
+    static_configs:
+      - targets: 
+        - "10.0.0.200:9121"
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+```
+
+**grafana展示**
+
+763
+
+14615
+
+
+
+
+
+### **Nginx** **监控**
+
+Nginx 默认自身没有提供 Json 格式的指标数据,可以通过下两种方式实现 Prometheus 监控
+
+方法1：
+
+通过容器方式 nginx/nginx-prometheus-exporter容器配合nginx的stub状态页实现nginx的监控
+
+方法2：Prometheus metric library for Nginx
+
+```bash
+https://prometheus.io/docs/instrumenting/exporters/
+https://github.com/knyar/nginx-lua-prometheus
+```
+
+方法3
+
+需要先编译安装一个模块nginx-vts,将状态页转换为Json格式
+
+再利用nginx-vts-exporter采集数据到Prometheus
+
+
+
+#### **nginx-prometheus-exporter** **容器实现**
+
+```
+https://hub.docker.com/r/nginx/nginx-prometheus-exporter
+```
+
+基于 docker 实现
+
+```
+https://hub.docker.com/r/nginx/nginx-prometheus-exporter
+```
+
+```bash
+[root@ubuntu2404 ~]#apt update && apt install -y docker.io nginx
+[root@ubuntu2404 ~]#vim /etc/docker/daemon.json
+{
+    "registry-mirrors": [
+        "https://docker.m.daocloud.io",
+        "https://docker.1panel.live"
+    ]
+}
+
+[root@ubuntu2404 ~]#vim /etc/nginx/conf.d/status.conf
+server {
+    listen 8888;
+    location /basic_status {
+        stub_status;
+    }
+}
+[root@ubuntu2404 ~]#nginx -s reload
+[root@ubuntu2404 ~]#docker pull nginx/nginx-prometheus-exporter:1.4
+[root@ubuntu2404 ~]#curl 127.0.0.1:8888/basic_status
+Active connections: 1 
+server accepts handled requests
+ 1 1 1 
+Reading: 0 Writing: 1 Waiting: 0 
+
+
+[root@ubuntu2404 ~]#docker run -p 9113:9113 --name nginx-prometheus-exporter --restart always -d nginx/nginx-prometheus-exporter:1.4 --nginx.scrape-uri=http://localhost:8888/basic_status
+```
+
+**修改prometheus配置**
+
+```bash
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+...
+  - job_name: "nginx_exporter"
+    static_configs:
+      - targets: 
+        - "10.0.0.200:9113"
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+```
+
+#### **nginx-vts-exporter** **实现**
+
+**编译安装** **Nginx** **添加模块**
+
+```
+https://github.com/vozlt/nginx-module-vts
+```
+
+```bash
+#编译安装nginx
+[root@ubuntu2404 ~]#cat install_nginx.sh 
+#!/bin/bash
+
+NGINX_VERSION=1.22.1
+#NGINX_VERSION=1.22.0
+#NGINX_VERSION=1.20.2
+#NGINX_VERSION=1.18.0
+NGINX_FILE=nginx-${NGINX_VERSION}.tar.gz
+NGINX_URL=http://nginx.org/download/
+NGINX_INSTALL_DIR=/apps/nginx
+SRC_DIR=/usr/local/src
+CPUS=`lscpu |awk '/^CPU\(s\)/{print $2}'`
+
+. /etc/os-release
+
+
+color () {
+    RES_COL=60
+    MOVE_TO_COL="echo -en \\033[${RES_COL}G"
+    SETCOLOR_SUCCESS="echo -en \\033[1;32m"
+    SETCOLOR_FAILURE="echo -en \\033[1;31m"
+    SETCOLOR_WARNING="echo -en \\033[1;33m"
+    SETCOLOR_NORMAL="echo -en \E[0m"
+    echo -n "$1" && $MOVE_TO_COL
+    echo -n "["
+    if [ $2 = "success" -o $2 = "0" ] ;then
+        ${SETCOLOR_SUCCESS}
+        echo -n $"  OK  "    
+    elif [ $2 = "failure" -o $2 = "1"  ] ;then 
+        ${SETCOLOR_FAILURE}
+        echo -n $"FAILED"
+    else
+        ${SETCOLOR_WARNING}
+        echo -n $"WARNING"
+    fi
+    ${SETCOLOR_NORMAL}
+    echo -n "]"
+    echo 
+}
+
+
+check () {
+    [ -e ${NGINX_INSTALL_DIR} ] && { color "nginx 已安装,请卸载后再安装" 1; exit; }
+    cd  ${SRC_DIR}
+    if [  -e ${NGINX_FILE}${TAR} ];then
+        color "相关文件已准备好" 0
+    else
+        color '开始下载 nginx 源码包' 0
+        wget ${NGINX_URL}${NGINX_FILE}${TAR} 
+        [ $? -ne 0 ] && { color "下载 ${NGINX_FILE}${TAR}文件失败" 1; exit; } 
+    fi
+} 
+
+install () {
+    color "开始安装 nginx" 0
+    if id nginx  &> /dev/null;then
+        color "nginx 用户已存在" 1 
+    else
+        useradd -s /sbin/nologin -r  nginx
+        color "创建 nginx 用户" 0 
+    fi
+    color "开始安装 nginx 依赖包" 0
+    if [ $ID == "centos" ] ;then
+            if [[ $VERSION_ID =~ ^7 ]];then
+            yum -y  install  gcc  make pcre-devel openssl-devel zlib-devel perl-ExtUtils-Embed
+                elif [[ $VERSION_ID =~ ^8 ]];then
+            yum -y  install make gcc-c++ libtool pcre pcre-devel zlib zlib-devel openssl openssl-devel perl-ExtUtils-Embed 
+                else 
+            color '不支持此系统!'  1
+            exit
+        fi
+     elif [ $ID == "rocky"  ];then
+            yum -y  install gcc make gcc-c++ libtool pcre pcre-devel zlib zlib-devel openssl openssl-devel perl-ExtUtils-Embed 
+     else
+        apt update
+        apt -y install gcc make  libpcre3 libpcre3-dev openssl libssl-dev zlib1g-dev
+     fi
+     [ $? -ne 0 ] && { color "安装依赖包失败" 1; exit; } 
+     cd $SRC_DIR
+     tar xf ${NGINX_FILE}
+     NGINX_DIR=`echo ${NGINX_FILE}| sed -nr 's/^(.*[0-9]).*/\1/p'`
+     cd ${NGINX_DIR}
+     ./configure --prefix=${NGINX_INSTALL_DIR} --user=nginx --group=nginx --with-http_ssl_module --with-http_v2_module --with-http_realip_module --with-http_stub_status_module --with-http_gzip_static_module --with-pcre --with-stream --with-stream_ssl_module --with-stream_realip_module 
+     make -j $CPUS && make install 
+     [ $? -eq 0 ] && color "nginx 编译安装成功" 0 ||  { color "nginx 编译安装失败,退出!" 1 ;exit; }
+         chown -R nginx.nginx ${NGINX_INSTALL_DIR}
+     ln -s ${NGINX_INSTALL_DIR}/sbin/nginx /usr/local/sbin/nginx
+     echo "PATH=${NGINX_INSTALL_DIR}/sbin:${PATH}" > /etc/profile.d/nginx.sh
+     cat > /lib/systemd/system/nginx.service <<EOF
+[Unit]
+Description=The nginx HTTP and reverse proxy server
+After=network.target remote-fs.target nss-lookup.target
+
+[Service]
+Type=forking
+PIDFile=${NGINX_INSTALL_DIR}/logs/nginx.pid
+ExecStartPre=/bin/rm -f ${NGINX_INSTALL_DIR}/logs/nginx.pid
+ExecStartPre=${NGINX_INSTALL_DIR}/sbin/nginx -t
+ExecStart=${NGINX_INSTALL_DIR}/sbin/nginx
+ExecReload=/bin/kill -s HUP \$MAINPID
+KillSignal=SIGQUIT
+TimeoutStopSec=5
+KillMode=process
+PrivateTmp=true
+LimitNOFILE=100000
+
+[Install]
+WantedBy=multi-user.target
+EOF
+     systemctl daemon-reload
+     systemctl enable --now nginx &> /dev/null 
+     systemctl is-active nginx &> /dev/null ||  { color "nginx 启动失败,退出!" 1 ; exit; }
+     color "nginx 安装完成" 0
+}
+
+check
+
+install
+```
+
+```bash
+[root@ubuntu2404 ~]#cd /usr/local/src/nginx-1.22.1/
+[root@ubuntu2404 nginx-1.22.1]#ls
+auto  CHANGES  CHANGES.ru  conf  configure  contrib  html  LICENSE  Makefile  man  objs  README  src
+[root@ubuntu2404 nginx-1.22.1]#nginx -V
+nginx version: nginx/1.22.1
+built by gcc 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) 
+built with OpenSSL 3.0.13 30 Jan 2024
+TLS SNI support enabled
+configure arguments: --prefix=/apps/nginx --user=nginx --group=nginx --with-http_ssl_module --with-http_v2_module --with-http_realip_module --with-http_stub_status_module --with-http_gzip_static_module --with-pcre --with-stream --with-stream_ssl_module --with-stream_realip_module
+[root@ubuntu2404 nginx-1.22.1]#./configure --prefix=/apps/nginx --user=nginx --group=nginx --with-http_ssl_module --with-http_v2_module --with-http_realip_module --with-http_stub_status_module --with-http_gzip_static_module --with-pcre --with-stream --with-stream_ssl_module --with-stream_realip_module --add-module=/root/nginx-module-vts-master
+[root@ubuntu2404 nginx-1.22.1]#make && make install
+```
+
+```bash
+[root@ubuntu2404 ~]#vim /apps/nginx/conf/nginx.conf
+http {
+	...
+    vhost_traffic_status_zone;
+	...
+    server {
+		...
+        location /status {
+            vhost_traffic_status_display;
+            vhost_traffic_status_display_format html;
+        }
+        ...
+[root@ubuntu2404 ~]#systemctl restart nginx.service 
+[root@ubuntu2404 ~]#systemctl status nginx.service 
+```
+
+```bash
+#浏览器访问如下
+http://10.0.0.201/status
+
+#访问下面可以看到Json格式
+http://10.0.0.201/status/format/json
+```
+
+
+
+**安装** **nginx-vts-exporter**
+
+```bash
+https://github.com/sysulq/nginx-vts-exporter/releases
+[root@ubuntu2404 ~]#tar xvf nginx-vtx-exporter_0.10.8_linux_amd64.tar.gz -C /usr/local/bin
+```
+
+```bash
+#创建service文件
+vim /lib/systemd/system/nginx_vts_exporter.service
+[Unit]
+Description=nginx_vts_exporter project
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nginx-vtx-exporter -nginx.scrape_uri=http://localhost/status/format/json
+Restart=on-failure
+User=prometheus
+Group=prometheus
+
+[Install]
+WantedBy=multi-user.target
+
+
+[root@ubuntu2404 ~]#systemctl daemon-reload;systemctl enable --now nginx_vts_exporter
+```
+
+**修改prometheus配置文件**
+
+
+
+```bash
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+...
+  - job_name: "nginx_vts_exporter"
+    static_configs:
+      - targets: 
+        - "10.0.0.200:9913"
+        
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+```
+
+**grafana**
+
+nginx-vts-exporter：2949
+
+nginx-prometheus-exporter：14900 11199 11280
+
+
+
+### **Consul** **监控**
+
+```
+ https://github.com/prometheus/consul_exporter
+```
+
+```bash
+[root@ubuntu2404 ~]#ls 
+consul_exporter-0.12.1.linux-amd64.tar.gz
+[root@ubuntu2404 ~]#tar xf consul_exporter-0.12.1.linux-amd64.tar.gz -C /usr/local/
+[root@ubuntu2404 ~]#cd /usr/local/
+[root@ubuntu2404 local]#ln -s consul_exporter-0.12.1.linux-amd64/ consul_exporter
+[root@ubuntu2404 local]#cd consul_exporter
+[root@ubuntu2404 consul_exporter]#ls
+consul_exporter  LICENSE  NOTICE
+[root@ubuntu2404 consul_exporter]#mkdir bin
+[root@ubuntu2404 consul_exporter]#mv consul_exporter bin/
+```
+
+```bash
+#用consul用户启动，创建consul用户
+useradd -r consul
+#编写service文件
+vim /lib/systemd/system/consul_exporter.service
+[Unit]
+Description=consul_exporter
+Documentation=https://prometheus.io/docs/introduction/overview/
+After=network.target
+
+[Service]
+Type=simple
+User=consul
+EnvironmentFile=-/etc/default/consul_exporter
+ExecStart=/usr/local/consul_exporter/bin/consul_exporter \
+          --consul.server="http://localhost:8500" \
+          --web.listen-address=":9107" \
+          --web.telemetry-path="/metrics" \
+          --log.level=info \
+          $ARGS
+ExecReload=/bin/kill -HUP $MAINPID
+TimeoutStopSec=20s
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
+[root@ubuntu2404 ~]#systemctl daemon-reload && systemctl enable --now consul_exporter.service 
+[root@ubuntu2404 ~]#systemctl status consul_exporter.service
+```
+
+```
+[root@ubuntu2404 ~]#ss -tnulp | grep 9107
+tcp   LISTEN 0      4096                                         *:9107             *:*    users:(("consul_exporter",pid=2381,fd=3))   
+```
+
+**修改prometheus配置文件监控consul_exporter**
+
+```bash
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+...
+  - job_name: "consul_exporter"
+    static_configs:
+      - targets:
+        - "10.0.0.200:9107"
+        
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+```
+
+**Grafana** **展示**
+
+12049
+
+
+
+### **黑盒监控** **blackbox_exporter**
+
+![image-20250308122635972](5day-png/34黑盒监控 blackbox_exporter.png)
+
+黑盒监视也称远端探测，监测应用程序的外部，可以查询应用程序的外部特征
+
+比如：是否开放相应的端口,并返回正确的数据或响应代码，执行icmp或者echo检查并确认收到响应
+
+prometheus探测工具是通过运行一个blackbox exporter来探测远程目标，并公开在本地端点上
+
+blackbox_exporter允许通过HTTP、HTTPS、DNS、TCP和ICMP等协议来探测端点状态
+
+blackbox_exporter中，定义一系列执行特定检查的模块，例:检查正在运行的web服务器，或者DNS解析记录
+
+blackbox_exporter运行时，它会在URL上公开这些模块和API
+
+blackbox_exporter是一个二进制Go应用程序，默认监听端口9115
+
+```
+https://github.com/prometheus/blackbox_exporter
+https://github.com/prometheus/blackbox_exporter/blob/master/blackbox.yml
+https://github.com/prometheus/blackbox_exporter/blob/master/example.yml
+```
+
+```
+https://prometheus.io/download/#blackbox_exporter
+```
+
+#### 二进制安装
+
+```bash
+[root@ubuntu2404 ~]#ls
+blackbox_exporter-0.26.0.linux-amd64.tar.gz
+[root@ubuntu2404 ~]#tar xf blackbox_exporter-0.26.0.linux-amd64.tar.gz -C /usr/local/
+[root@ubuntu2404 ~]#cd /usr/local/
+[root@ubuntu2404 local]#ln -s blackbox_exporter-0.26.0.linux-amd64/ blackbox_exporter
+[root@ubuntu2404 local]#cd blackbox_exporter
+[root@ubuntu2404 blackbox_exporter]#ls
+blackbox_exporter  blackbox.yml  LICENSE  NOTICE
+[root@ubuntu2404 blackbox_exporter]#mkdir bin conf
+[root@ubuntu2404 blackbox_exporter]#mv blackbox_exporter bin/
+[root@ubuntu2404 blackbox_exporter]#mv blackbox.yml conf/
+[root@ubuntu2404 blackbox_exporter]#ls
+bin  conf  LICENSE  NOTICE
+```
+
+```yaml
+#配置文件
+[root@ubuntu2404 blackbox_exporter]#cat conf/blackbox.yml 
+modules:
+  http_2xx:			#名字
+    prober: http	#协议
+    http:
+      preferred_ip_protocol: "ip4"
+  http_post_2xx:
+    prober: http
+    http:
+      method: POST	#支持GET、POST、默认GET
+  tcp_connect:
+    prober: tcp
+  pop3s_banner:
+    prober: tcp
+    tcp:
+      query_response:
+      - expect: "^+OK"
+      tls: true
+      tls_config:
+        insecure_skip_verify: false		#启用远程证书探测
+  grpc:
+    prober: grpc
+    grpc:
+      tls: true
+      preferred_ip_protocol: "ip4"		#探测的ip协议版本
+  grpc_plain:
+    prober: grpc
+    grpc:
+      tls: false
+      service: "service1"
+  ssh_banner:
+    prober: tcp
+    tcp:
+      query_response:
+      - expect: "^SSH-2.0-"
+      - send: "SSH-2.0-blackbox-ssh-check"
+  ssh_banner_extract:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      query_response:
+      - expect: "^SSH-2.0-([^ -]+)(?: (.*))?$"
+        labels:
+        - name: ssh_version
+          value: "${1}"
+        - name: ssh_comments
+          value: "${2}"
+  irc_banner:
+    prober: tcp
+    tcp:
+      query_response:
+      - send: "NICK prober"
+      - send: "USER prober prober prober :prober"
+      - expect: "PING :([^ ]+)"
+        send: "PONG ${1}"
+      - expect: "^:[^ ]+ 001"
+  icmp:
+    prober: icmp
+  icmp_ttl5:
+    prober: icmp
+    timeout: 5s
+    icmp:
+      ttl: 5
+```
+
+```bash
+#创建service文件
+[root@ubuntu2404 ~]#vim /lib/systemd/system/blackbox_exporter.service
+[Unit]
+Description=Prometheus Black Exporter
+After=network.target
+[Service]
+Type=simple
+#新版blackbox_exporter-0.26.0如果以普通用户启动，会导致探测失败
+#User=prometheus
+#Group=prometheus
+ExecStart=/usr/local/blackbox_exporter/bin/blackbox_exporter --
+config.file=/usr/local/blackbox_exporter/conf/blackbox.yml --web.listen-address=:9115
+Restart=on-failure
+LimitNOFILE=100000
+[Install]
+WantedBy=multi-user.target
+
+[root@ubuntu2404 ~]#systemctl daemon-reload && systemctl enable --now blackbox_exporter.service
+[root@ubuntu2404 ~]#systemctl status blackbox_exporter.service
+
+[root@ubuntu2404 ~]#ss -tnulp | grep 9115
+tcp   LISTEN 0      4096                                         *:9115             *:*    users:(("blackbox_export",pid=1818,fd=3))  
+```
+
+
+
+#### ansible部署
+
+```
+https://github.com/prometheus-community/ansible/tree/main/roles/blackbox_exporter
+```
+
+
+
+#### docker容器启动
+
+```bash
+docker run --rm -d -p 9115:9115 -v pwd:/config prom/blackbox-exporter:master --config.file=/config/blackbox.yml
+```
+
+
+
+#### 网络连通性探测
+
+**Prometheus** **配置定义监控规则**
+
+```yaml
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+...
+  # ping 检测
+  - job_name: 'ping_status_blackbox_exporter'
+    scrape_interval: 1m
+    scrape_timeout: 10s
+    metrics_path: /probe
+    params:
+      module: [icmp]  # 使用 ICMP (ping) 探测方式
+    static_configs:
+      - targets:		#探测的目标主机地址
+          - '10.0.0.201'
+          - 'www.google.com'
+        labels:
+          instance: 'ping_status'
+          group: 'icmp'
+    relabel_configs:
+      - source_labels: [__address__]	#修改目标URL地址的标签[__address__]为__param_target,用于发送给blackbox使用
+        target_label: __param_target  # 目标 URL 传递给 blackbox_exporter
+      - target_label: __address__		#添加新标签.用于指定black_exporter服务器地址,此为必须项
+        replacement: 10.0.0.200:9115  # 指定 blackbox_exporter 服务器地址
+      - source_labels: [__param_target]	#Grafana 使用此标签进行显示，此值是固定的
+        target_label: ipaddr  # Grafana 展示字段
+
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+```
+
+```bash
+#访问：10.0.0.200:9115
+Recent Probes
+Module	Target	Result	Debug
+icmp	www.google.com	Failure	Logs
+icmp	10.0.0.201	Success	Logs
+icmp	www.google.com	Failure	Logs
+icmp	10.0.0.201	Success	Logs
+```
+
+```bash
+#在201上禁止ping
+[root@ubuntu2404 ~]#cat /proc/sys/net/ipv4/icmp_echo_ignore_all 
+0
+[root@ubuntu2404 ~]#echo 1 > /proc/sys/net/ipv4/icmp_echo_ignore_all
+```
+
+```
+Recent Probes
+Module	Target	Result	Debug
+icmp	10.0.0.201	Failure	Logs
+icmp	www.google.com	Failure	Logs
+```
+
+
+
+#### TCP端口连通性探测
+
+**Prometheus** **配置定义监控规则**
+
+```yaml
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+# 端口监控
+  - job_name: 'port_status_blackbox_exporter'
+    scrape_interval: 1m
+    scrape_timeout: 10s
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]  # 使用 TCP 连接探测
+    static_configs:
+      - targets:
+          - '10.0.0.201:80'  # 目标地址，带端口
+        labels:
+          instance: 'port_status'
+          group: 'port'
+    relabel_configs:
+      - source_labels: [__address__]    #修改目标URL地址的标签[__address__]为__param_target,用于发送给blackbox使用
+        target_label: __param_target    # 目标 URL 传递给 blackbox_exporter
+      - target_label: __address__               #添加新标签.用于指定black_exporter服务器地址,此为必须项
+        replacement: 10.0.0.200:9115  # 指定 blackbox_exporter 服务器地址
+      - source_labels: [__param_target] #Grafana 使用此标签进行显示，此值是固定的
+        target_label: ipaddr_port  # Grafana 展示的字段
+
+[root@ubuntu2404 ~]#promtool check config /usr/local/prometheus/conf/prometheus.yml
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+```
+
+
+
+#### **Http/Https** **网站监控**
+
+**Prometheus** **配置定义监控规则**
+
+```yaml
+# 网站监控
+  - job_name: 'http_status_blackbox_exporter'
+    scrape_interval: 1m
+    scrape_timeout: 10s
+    metrics_path: /probe
+    params:
+      module: [http_2xx]  # 使用 HTTP 2xx 状态码探测
+    static_configs:		#如果有https网站,还会自动额外显示TLS版本和证书的有效期,但有些网站可能不会显示证书信息,比如taobao
+      - targets:
+          - 'https://www.baidu.com'  # HTTPS 站点，支持 TLS 版本和证书有效期检测
+          - 'http://www.163.com'  # HTTP 站点
+        labels:		#添加标签
+          instance: http_status
+          group: web
+    relabel_configs:
+      - source_labels: [__address__]	#修改目标URL地址的标签[__address__]为__param_target,用于发送给blackbox使用
+        target_label: __param_target  # 目标 URL 传递给 blackbox_exporter
+      - target_label: __address__		#添加新标签,用于指定black_exporter服务器地址,此为必须项
+        replacement: black-exporter.wang.org:9115  # 指定 blackbox_exporter 服务器地址
+      - source_labels: [__param_target]		#Grafana 使用此url标签，此值是固定的，否则有些模板可能无法显示
+        target_label: url  # Grafana 展示字段
+      # - target_label: region  # 可选标签，例如标识不同区域的监控
+      #   replacement: "remote"
+
+```
+
+```bash
+[root@ubuntu2404 ~]#promtool check config /usr/local/prometheus/conf/prometheus.yml
+[root@ubuntu2404 ~]#systemctl reload prometheus.service
+```
+
+
+
+#### **Grafana** **展示**
+
+9965
+
+13587
+
+
+
+## **Prometheus** **实现容器监控** -cAdvisor
+
+### 安装部署
+
+```
+#包下载
+http://github.com/google/cadvisor
+
+#容器下载,需用要google登录
+gcr.io/cadvisor/cadvisor
+```
+
+#### 二进制方式部署
+
+```bash
+[root@ubuntu2404 ~]#ls
+cadvisor-v0.51.0-linux-amd64
+[root@ubuntu2404 ~]#install cadvisor-v0.51.0-linux-amd64 /usr/local/bin/cadvisor
+[root@ubuntu2404 ~]#ldd /usr/local/bin/cadvisor
+        not a dynamic executable
+        
+#编辑service文件
+[root@ubuntu2404 ~]#vim /lib/systemd/system/cadvisor.service
+[Unit]
+Description=Prometheus cAdvisor Exporter
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cadvisor
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+#User=prometheus #不能以普通用户身份启动，权限不足
+#Group=prometheus
+Restart=on-failure
+LimitNOFILE=100000
+
+[Install]
+WantedBy=multi-user.target
+
+[root@ubuntu2404 ~]#systemctl daemon-reload && systemctl enable --now cadvisor.service 
+```
+
+```bash
+[root@ubuntu2404 ~]#ss -tnulp | grep cad
+tcp   LISTEN 0      4096                                         *:8080             *:*    users:(("cadvisor",pid=8741,fd=7))    
+```
+
+```
+10.0.0.200:8080
+```
+
+**prometheus配置**
+
+```bash
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+...
+  - job_name: "cadvisor_exporter"
+    static_configs:
+      - targets: 
+        - "10.0.0.200:8080"
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+```
+
+
+
+#### docker方式部署cAdvisor
+
+```bash
+[root@ubuntu2404 ~]#docker pull \
+    gcr.io/cadvisor/cadvisor:v0.49.2
+```
+
+```bash
+VERSION=v0.49.2
+[root@ubuntu2404 ~]#docker run \
+  --volume=/:/rootfs:ro \
+  --volume=/var/run:/var/run:ro \
+  --volume=/sys:/sys:ro \
+  --volume=/var/lib/docker/:/var/lib/docker:ro \
+  --volume=/dev/disk/:/dev/disk:ro \
+  --publish=8080:8080 \
+  --detach=true \
+  --name=cadvisor \
+  --privileged \
+  --device=/dev/kmsg \
+  gcr.io/cadvisor/cadvisor:v0.49.2
+a72bdd52e20f963d907e2ecb6b2f7217ba30c876796223accee98d01597a19cd
+```
+
+#### **Ansible** **方式安装** **cAdvisor**
+
+```
+https://github.com/prometheus-community/ansible/tree/main/roles/cadvisor
+```
+
+### **常见指标**
+
+```bash
+container_tasks_state  #gauge类型，容器特定状态的任务数,根据不同的pod_name和state有600+的不同label.
+container_memory_failures_total  #counter类型，内存分配失败的累积计数,根据不同的pod_name和
+state有600+的不同label.
+container_network_receive_errors_total  #counter类型，容器网络接收时遇到的累计错误数。
+container_network_transmit_bytes_total  #counter类型，容器发送传输的累计字节数。
+container_network_transmit_packets_dropped_total  #counter类型，容器传输时丢弃的累计包数
+container_network_transmit_packets_total  #counter类型，传输数据包的累计计数
+container_network_transmit_errors_total  #counter类型，传输时遇到的累积错误数
+container_network_receive_bytes_total  #counter类型，收到的累计字节数
+container_network_receive_packets_dropped_total  #counter类型，接收时丢弃的累计数据包数
+container_network_receive_packets_total  #counter类型，收到的累计数据包数
+container_spec_cpu_period  #gauge类型，容器的CPU period。
+container_spec_memory_swap_limit_bytes  #容器swap内存交换限制字节
+container_memory_failcnt  #counter类型，内存使用次数达到限制
+container_spec_memory_reservation_limit_bytes  #容器规格内存预留限制字节
+container_spec_cpu_shares  #gauge类型，
+container_spec_memory_limit_bytes  #容器规格内存限制字节
+container_memory_max_usage_bytes  #gauge类型，以字节为单位记录的最大内存使用量
+container_cpu_load_average_10s  #gauge类型，最近10秒钟内的容器CPU平均负载值。
+container_memory_rss  #gauge类型，容器RSS的大小（以字节为单位）
+container_start_time_seconds  #gauge类型，从Unix纪元开始的容器开始时间（以秒为单位）。
+container_memory_mapped_file  #gauge类型，内存映射文件的大小（以字节为单位）
+container_cpu_user_seconds_total  #conter类型，累计CPU user 时间（以秒为单位）
+container_memory_cache  #gauge类型，内存的cache字节数。
+container_memory_working_set_bytes  #gague类型，当前工作集（以字节为单位）
+container_cpu_system_seconds_total  #conter类型，累计CPU system时间（以秒为单位）
+container_memory_swap  #gauge类型，容器交换使用量（以字节为单位）
+container_memory_usage_bytes  #gauge类型，当前内存使用情况（以字节为单位），包括所有内存，无论何时访问
+container_last_seen  #gauge类型，上一次export看到此容器的时间
+container_fs_writes_total  #counter类型，累计写入次数
+container_fs_reads_total   #counter类型，类型读取次数
+container_cpu_usage_seconds_total  #counter类型，累计消耗CPU的总时间
+container_fs_reads_bytes_total  #容器读取的总字节数
+container_fs_writes_bytes_total  #容器写入的总字节数
+container_fs_sector_reads_total  #counter类型，扇区已完成读取的累计计数
+container_fs_inodes_free  #gauge类型，可用的Inode数量
+container_fs_io_current  #gauge类型，当前正在进行的I/O数
+container_fs_io_time_weighted_seconds_total  #counter类型，累积加权I/O时间（以秒为单位）
+container_fs_usage_bytes  #gauge类型，此容器在文件系统上使用的字节数
+container_fs_limit_bytes  #gauge类型，此容器文件系统上可以使用的字节数
+container_fs_inodes_total  #gauge类型，inode数
+container_fs_sector_writes_total  #counter类型，扇区写入累计计数
+container_fs_io_time_seconds_total  #counter类型，I/O花费的秒数累计
+container_fs_writes_merged_total  #counter类型，合并的累计写入数
+container_fs_reads_merged_total  #counter类型，合并的累计读取数
+container_fs_write_seconds_total  #counter类型，写花费的秒数累计
+container_fs_read_seconds_total   #counter类型，读花费的秒数累计
+container_cpu_cfs_periods_total  #counter类型，执行周期间隔时间数
+container_cpu_cfs_throttled_periods_total  #counter类型，节流周期间隔数
+container_cpu_cfs_throttled_seconds_total  #counter类型，容器被节流的总时间
+container_spec_cpu_quota  #gauge类型，容器的CPU配额
+machine_memory_bytes  #gauge类型，机器上安装的内存量
+scrape_samples_post_metric_relabeling
+cadvisor_version_info
+scrape_duration_seconds
+machine_cpu_cores  #gauge类型，机器上的CPU核心数
+container_scrape_error  #gauge类型，如果获取容器指标时出错，则为1，否则为0
+scrape_samples_scraped
+```
+
+**常见指标**
+
+```
+https://www.bookstack.cn/read/prometheus-book/exporter-use-prometheus-monitor-container.md
+```
+
+| 指标名称                               | 类型    | 含义                                         |
+| :------------------------------------- | :------ | :------------------------------------------- |
+| container_cpu_load_average_10s         | gauge   | 过去10秒容器CPU的平均负载                    |
+| container_cpu_usage_seconds_total      | counter | 容器在每个CPU内核上的累积占用时间 (单位：秒) |
+| container_cpu_system_seconds_total     | counter | System CPU累积占用时间（单位：秒）           |
+| container_cpu_user_seconds_total       | counter | User CPU累积占用时间（单位：秒）             |
+| container_fs_usage_bytes               | gauge   | 容器中文件系统的使用量(单位：字节)           |
+| container_fs_limit_bytes               | gauge   | 容器可以使用的文件系统总量(单位：字节)       |
+| container_fs_reads_bytes_total         | counter | 容器累积读取数据的总量(单位：字节)           |
+| container_fs_writes_bytes_total        | counter | 容器累积写入数据的总量(单位：字节)           |
+| container_memory_max_usage_bytes       | gauge   | 容器的最大内存使用量（单位：字节）           |
+| container_memory_usage_bytes           | gauge   | 容器当前的内存使用量（单位：字节             |
+| container_spec_memory_limit_bytes      | gauge   | 容器的内存使用量限制                         |
+| machine_memory_bytes                   | gauge   | 当前主机的内存总量                           |
+| container_network_receive_bytes_total  | counter | 容器网络累积接收数据总量（单位：字节）       |
+| container_network_transmit_bytes_total | counter | 容器网络累积传输数据总量（单位：字节）       |
+
+容器的CPU使用率：
+
+```
+sum(irate(container_cpu_usage_seconds_total{image!=""}[1m])) without (cpu)
+#使用 name="<container_name>"表达 式选择指定名称的容器
+```
+
+每个容器的cpu使用率
+
+```
+sum(rate(container_cpu_usage_seconds_total{name=~".+"}[1m])) by (name) * 100
+```
+
+所用容器system cpu的累计使用时间（1min钟内）
+
+```
+sum(rate(container_cpu_system_seconds_total[1m]))
+```
+
+每个容器system cpu的使用时间（1min钟内）
+
+```
+sum(irate(container_cpu_system_seconds_total{image!=""}[1m])) without (cpu)
+```
+
+总容器的cpu使用率
+
+```
+sum(sum(rate(container_cpu_usage_seconds_total{name=~".+"}[1m])) by (name) * 100)
+```
+
+查询容器内存使用量（单位：字节）:
+
+```
+container_memory_usage_bytes{image!=""}
+```
+
+查询容器网络接收量速率（单位：字节/秒）：
+
+```
+sum(rate(container_network_receive_bytes_total{image!=""}[1m])) without (interface)
+```
+
+容器网络接收的字节数（1分钟内），根据名称查询name=~".+"
+
+```
+sum(rate(container_network_receive_bytes_total{name=~".+"}[1m])) by (name)
+```
+
+查询容器网络传输量速率（单位：字节/秒）：
+
+```
+sum(rate(container_network_transmit_bytes_total{image!=""}[1m])) without (interface)
+```
+
+查询容器文件系统读取速率（单位：字节/秒）：
+
+```
+sum(rate(container_fs_reads_bytes_total{image!=""}[1m])) without (device)
+```
+
+查询容器文件系统写入速率（单位：字节/秒）：
+
+```
+sum(rate(container_fs_writes_bytes_total{image!=""}[1m])) without (device)
+```
+
+### grafana展示
+
+193
+
+14282
+
+
+
+## **Prometheus Federation** **联邦**
+
+```
+https://prometheus.io/docs/prometheus/latest/federation/
+```
+
+在生产环境中，一个Prometheus服务节点所能接管的主机数量有限。只使用一个prometheus节点，随着监控数据的持续增长，将会导致压力越来越大
+
+可以采用prometheus的集群联邦模式，即在原有 Prometheus的Master 节点基础上,再部署多个prometheus的Slave 从节点，分别负责不同的监控数据采集，而Master节点只负责汇总数据与 Grafana 数据展示
+
+联邦模式允许 Prometheus 服务器从另一个 Prometheus 服务器抓取特定数据。
+
+联邦有不同的用例。 通常，它用于实现可扩展的Prometheus监控设置或将相关指标从一个服务的Prometheus拉到另一个服务。
+
+联邦模式有分层联邦和跨服务联邦两种模式，分层联邦较为常用，且配置简单。
+
+**分层联邦**
+
+分层联合允许Prometheus扩展到具有数十个数据中心和数百万个节点的环境。 在此用例中，联合拓扑类似于树，较高级别的Prometheus服务器从较大数量的从属服务器收集聚合时间序列数据。
+
+例如：设置可能包含许多高度详细收集数据的每个数据中心Prometheus服务器（实例级深入分析），以及一组仅收集和存储聚合数据的全局Prometheus服务器（作业级向下钻取） ）来自那些本地服务器。 这提供了聚合全局视图和详细的本地视图。
+
+**跨服务联邦**
+
+在跨服务联合中，一个服务的 Prometheus 服务器配置为从另一个服务的Prometheus服务器中提取所选数据，以便对单个服务器中的两个数据集启用警报和查询。
+
+例如：运行多个服务的集群调度程序可能会暴露有关在集群上运行的服务实例的资源使用情况信息（如内存和CPU使用情况）。 另一方面，在该集群上运行的服务仅公开特定于应用程序的服务指标。 通常，这两组指标都是由单独的Prometheus服务器抓取的。 使用联合，包含服务级别度量标准的Prometheus服务器可以从群集Prometheus中提取有关其特定服务的群集资源使用情况度量标准，以便可以在该服务器中使用这两组度量标准。
+
+
+
+针对每个集群，需要采集的主要指标类别包括：
+
+- OS指标，例如节点资源（CPU, 内存，磁盘等）水位以及网络吞吐
+- 元集群以及用户集群K8s master指标，例如kube-apiserver, kube-controller-manager, kubescheduler等指标
+- K8s组件（kubernetes-state-metrics，cadvisor）采集的关于K8s集群状态
+- etcd指标，例如etcd写磁盘时间，DB size，Peer之间吞吐量等等。
+
+![image-20250308145505880](5day-png/34prometheus联邦.png)
+
+| 编号 | 地址       | 角色                  |
+| ---- | ---------- | --------------------- |
+| 1    | 10.0.0.200 | Prometheus Master     |
+| 2    | 10.0.0.201 | Prometheus Federation |
+| 3    | 10.0.0.202 | Prometheus Federation |
+| 4    | 10.0.0.101 | Node Exporter         |
+| 5    | 10.0.0.102 | Node Exporter         |
+
+**部署** **Prometheus** **主节点和联邦节点**
+
+所有联邦节点和Prometheus的主节点安装方法是一样的
+
+```
+通过上面脚本安装prometheus
+```
+
+**部署** **Node Exporter** **节点**
+
+在所有被监控的节点上安装 Node Exporter,安装方式一样
+
+```
+通过上面脚本安装node Exporter
+```
+
+**配置** **Prometheus** **联邦节点监控** **Node Exporter**
+
+```bash
+201
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml 
+  - job_name: "node_exporter"
+    static_configs:
+      - targets: ["10.0.0.101:9100"]
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+202
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml 
+  - job_name: "node_exporter"
+    static_configs:
+      - targets: ["10.0.0.102:9100"]
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+```
+
+**配置** **Prometheus** **主节点管理** **Prometheus** **联邦节点**
+
+```bash
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+```
+
+```yaml
+  - job_name: 'federate-201'
+    scrape_interval: 15s
+
+    honor_labels: true
+    metrics_path: '/federate'   #指定采集端点的路径,默认为/federate
+
+    params:
+      'match[]':
+        - '{job="prometheus"}'      #指定只采集指定联邦节点的Job名称对应的数据,默认不指定不会采集任何联邦节点的采集的数据
+        - '{job="node_exporter"}'   #指定采集联邦节点的job名称,和联邦节点配置的job_name必须匹配，如果不匹配则不会采集
+        - '{__name__=~"job:.*"}'    #指定采集联邦节点的job名称,和联邦节点配置的job_name必须匹配，如果不匹配则不会采集
+    static_configs:
+      - targets:
+        - '10.0.0.201:9090' #指定联邦节点prometheus节点地址,如果在k8s集群内,需要指定k8s的SVC的NodePort的地址信息
+  - job_name: 'federate-202'
+    scrape_interval: 15s
+
+    honor_labels: true
+    metrics_path: '/federate'   #指定采集端点的路径,默认为/federate
+
+    params:
+      'match[]':
+        - '{job="prometheus"}'      #指定只采集指定联邦节点的Job名称对应的数据,默认不指定不会采集任何联邦节点的采集的数据
+        - '{job="node_exporter"}'   #指定采集联邦节点的job名称,和联邦节点配置的job_name必须匹配，如果不匹配则不会采集
+        - '{__name__=~"job:.*"}'    #指定采集联邦节点的job名称,和联邦节点配置的job_name必须匹配，如果不匹配则不会采集
+        - '{__name__=~"node.*"}'    #指定从联邦节点中采集job_name以node开头的数据
+    static_configs:
+      - targets:
+        - '10.0.0.202:9090' #指定联邦节点prometheus节点地址,如果在k8s集群内,需要指定k8s的SVC的NodePort的地址信息
+                                                                                                                 
+```
+
+```bash
+[root@ubuntu2404 ~]#promtool check config /usr/local/prometheus/conf/prometheus.yml 
+[root@ubuntu2404 ~]#systemctl reload prometheus.service 
+```
+
+**Grafana展示Prometheus联邦**
+
+8919
+
+
+
+**联邦解决性能问题，不解决高可用**
+
+
+
+
+
+## **Prometheus** **存储**
+
+#### **Prometheus TSDB数据存储机制**
+
+![image-20250308163004954](5day-png/34TSDB数据存储机制.png)
+
+- 最新的数据是保存在内存中的，并同时写入至预写日志（WAL Write Ahead Log）
+- 以每2小时为一个时间窗口，将内存中的数据存储为一个单独的 Block
+- Block会被压缩及合并历史Block块，压缩合并后Block数量会减少
+- Block的大小并不固定，但最小会保存2个小时的数据
+- 后续生成的新数据保存在内存和WAL中，重复以上过程
+
+
+
+<img src="5day-png/34TSDB数据存储机制1.png" alt="image-20250308163149763" style="zoom:50%;" />
+
+
+
+**Prometheus** **数据目录结构**
+
+<img src="5day-png/34TSDB数据目录结构.png" alt="image-20250308163230047" style="zoom:50%;" />
+
+PTSDB本地存储使用自定义的文件结构。
+
+Prometheus 默认将数据存储在安装目录下的./data/目录
+
+在./data/目录下类似如01JND606HBBW2GVJC68REVY89E形式的目录为2小时块Block目录
+
+每个Block块都有独立的目录,这些目录叫做2小时块。
+
+每个2小时块目录包含一个chunks子目录（包含那个时间窗口里的所有时间序列）、元数据文件meta.json、索引文件index、tombstones
+
+- chunks 目录
+
+  用于保存时序数据文件
+
+  chunks目录中的样例被分组到一个或多个段文件中，各Chunk文件以数字编号,比如:000001
+
+  每个chunk文件的默认最大上限为512MB，如果达到上限则截断并创建为另一 个Chunk
+
+- index 文件
+
+  索引文件，它是Prometheus TSDB实现高效查询的基础
+
+  可以通过Metrics Name和Labels查找时间序列数据在chunk文件中的位置
+
+  索引文件指标名称和标签索引到chunks目录中的时间序列上
+
+- tombstones 文件
+
+  用于对数据进行软删除，不会立即删除块段（chunk segment）中的数据，即“ 标记删除”，以降低删除操作的开销
+
+  删除的记录并保存于墓碑 tombstones文件中，而读取时间序列上的数据时，会基于tombstones进行过滤已经删除的部分
+
+- meta.json 文件
+
+  block的元数据信息，这些元数据信息是block的合并、删除等操作的基础依赖
+
+```bash
+[root@ubuntu2404 ~]#ll /usr/local/prometheus/data/
+total 80
+drwxr-xr-x 15 prometheus prometheus  4096 Mar  8 15:16 ./
+drwxr-xr-x  8 prometheus prometheus  4096 Mar  4 17:48 ../
+drwxr-xr-x  3 prometheus prometheus  4096 Mar  3 13:00 01JND606HBBW2GVJC68REVY89E/
+drwxr-xr-x  3 prometheus prometheus  4096 Mar  3 19:00 01JNDTKCACAXXWCWEGJE5EGZV7/
+drwxr-xr-x  3 prometheus prometheus  4096 Mar  4 13:00 01JNFRD03ZA8G3478WC1FENCVS/
+drwxr-xr-x  3 prometheus prometheus  4096 Mar  6 09:12 01JNMG6AXE5V3BBV4GV84XTBSG/
+drwxr-xr-x  3 prometheus prometheus  4096 Mar  6 12:12 01JNMTFY8MN7F1DH8Y6CX7BAMH/
+drwxr-xr-x  3 prometheus prometheus  4096 Mar  6 19:00 01JNNHSH2ZV96856X8HVHFN4NX/
+drwxr-xr-x  3 prometheus prometheus  4096 Mar  7 19:14 01JNR51CSZZKASRPMQ8ANPZMPS/
+drwxr-xr-x  3 prometheus prometheus  4096 Mar  8 12:16 01JNSZF8N0HSK1AR010ZKHKKWW/
+drwxr-xr-x  3 prometheus prometheus  4096 Mar  8 12:16 01JNSZF9FRXGC9EQH45696BXJM/
+drwxr-xr-x  3 prometheus prometheus  4096 Mar  8 12:16 01JNSZF9VSEN4HREAQKJXFY264/
+drwxr-xr-x  3 prometheus prometheus  4096 Mar  8 15:16 01JNT9RSZDP20701G98R7PJF0A/
+drwxr-xr-x  2 prometheus prometheus  4096 Mar  8 15:17 chunks_head/
+-rw-r--r--  1 prometheus prometheus     0 Mar  8 13:44 lock			#锁文件
+-rw-r--r--  1 prometheus prometheus 20001 Mar  8 16:29 queries.active	#查询相关数据
+drwxr-xr-x  3 prometheus prometheus  4096 Mar  8 15:16 wal/			#写前日志
+[root@ubuntu2404 ~]#ll /usr/local/prometheus/data/01JND606HBBW2GVJC68REVY89E/
+total 612
+drwxr-xr-x  3 prometheus prometheus   4096 Mar  3 13:00 ./
+drwxr-xr-x 15 prometheus prometheus   4096 Mar  8 15:16 ../
+drwxr-xr-x  2 prometheus prometheus   4096 Mar  3 13:00 chunks/		#块存放目录
+-rw-r--r--  1 prometheus prometheus 602216 Mar  3 13:00 index		#索引文件
+-rw-r--r--  1 prometheus prometheus    588 Mar  3 13:00 meta.json	#元数据，包括样本数，数据时间，合并等
+-rw-r--r--  1 prometheus prometheus      9 Mar  3 13:00 tombstones	#标记删除的信息
+```
+
+**WAL Write-Ahead Logging（写前日志）**
+
+![image-20250308164137446](5day-png/34TSDB数据存储写前日志.png)
+
+Head块是数据库位于内存中的部分，Block 是磁盘上不可更改的持久块,而预写日志(WAL) 用于辅助完成持久写入
+
+传入的样本(k/v)首先会进入Head，并在内存中停留一段时间默认2小时，然后即会被刷写到磁盘并映射回内存中(M-map) 
+
+内存存储的只是引用而已。使用内存映射，我们可以在需要的时候使用该引用将 chunk 动态加载到内存
+
+当这些内存映射的块Chunks 或内存中的Chunks 块老化到一定程度时，它会将作为持久块刷入到磁盘
+
+随着它们的老化进程，将合并更多的块，最在超过保留期限后被删除
+
+WAL是数据库中发生的事件的顺序日志，在写入/修改/删除数据库中的数据之前，首先将事件记录附加)到WAL中，然后在数据库中执行必要的操作
+
+WAL用于帮助TSDB先写日志，再写磁盘上的Block
+
+使用WAL技术可以方便地保证原子性、重试等
+
+WAL被分割为默认为128MB大小的文件段，它们都位于WAL目录下
+
+WAL日志的数量及截断的位置则保存于checkpoint文件中，该文件的内容要同步写入磁盘，以确保其可靠性
+
+**压缩机制**
+
+<img src="5day-png/34TSDB数据存储压缩机制.png" alt="image-20250308164448714" style="zoom:50%;" />
+
+Prometheus将最近的数据保存在内存中，这样查询最近的数据会变得非常快，然后通过一个compactor定时将数据打包到磁盘。
+
+数据在内存中最少保留2个小时(storage.tsdb.min-block-duration)。
+
+之所以设置2小时这个值，应该是Gorilla那篇论文中上图观察得出的结论
+
+即压缩率在2小时时候达到最高，如果保留的时间更短，就无法最大化的压缩
+
+最新的数据是保存在内存中的，并同时写入至磁盘上的预写日志（WAL），每一次动作都会记录到预写日志中。
+
+预写日志文件被保存在wal目录中，以128MB的段形式存在
+
+这些预写日志文件包含尚未压缩的原始数据，因此它们比常规的块文件大得多
+
+prometheus至少保留3个预写日志文件
+
+高流量的服务器可能会保留多于3个的预写日志文件，以至少保留2个小时的原始数据。
+
+如果prometheus 崩溃时，就会重放这些日志，因此就能恢复数据
+
+2小时块最终在后台会被压缩成更长久的块
+
+
+
+#### **Prometheus** **配置本地存储相关选项**
+
+```bash
+--storage.tsdb.path           #数据存储位置，默认是安装和录下的data子目录。
+--storage.tsdb.retention.time #保留时间，默认是15天，过15天之后就删除。该配置会覆盖--storage.tsdb.retention的值。
+--storage.tsdb.retention.size #要保留的块Block的最大字节数(不包括WAL大小)。比如:100GB,支持单位: B,KB, MB, GB, TB, PB, EB如果达到指定大小,则最旧的数据会首先被删除。默认为0或禁用，注意：此值不是指定每个段文件chunk的大小
+#注意：上面两个参数值retention.time和retention.size只要有一个满足条件，就会删除旧的数据
+--storage.tsdb.wal-compression #开启预写日志的压缩,默认开启
+```
+
+**磁盘空间公式**
+
+```bash
+needed_disk_space = retention_time_seconds * ingested_samples_per_second * bytes_per_sample
+#retention_time_seconds：保留时间
+#ingested_samples_per_second：样本数
+#bytes_per_sample：每个样本大小
+```
+
+
+
+#### Prometheus 远程存储 VicetoriaMetrics
+
+Prometheus的远程存储可以解决以上问题，远程存储有多种方案，比如：VictoriaMetrics，Thanos（灭霸） 和 influxdb，也可以通过adapter适配器间接的存储在Elasticsearch或PostgreSQL中
+
+VictoriaMetrics(VM) 是基于Golang实现的一个支持高可用、经济高效且可扩展的监控解决方案和时间序列数据库，可用于 Prometheus 监控数据做长期远程存储。Thanos 方案也可以用来解决 Prometheus 的高可用和远程存储的问题
+
+相对于 Thanos，VictoriaMetrics 主要是一个可水平扩容的本地全量持久化存储方案，性能比thanos性能要更好
+
+而 Thanos不是本地全量的，它很多历史数据是存放在对象存储当中的，如果要查询历史数据都要从对象存储当中去拉取，这肯定比本地获取数据要慢，VictoriaMetrics要比Thanos性能要好
+
+VictoriaMetrics具有以下突出特点：
+
+```
+它可以用作Prometheus的长期储存。
+它可以用作Grafana中Prometheus的直接替代品，因为它支持Prometheus查询 API。
+它可以用作Grafana中Graphite的直接替代品，因为它支持Graphite API。
+它实现了基于PromQL的查询语言MetricsQL，它在PromQL之上提供了改进的功能。
+它提供全局查询视图。多个Prometheus实例或任何其他数据源可能会将数据摄取到VictoriaMetrics中。稍后可以通过单个查询查询此数据。
+它为数据引入和数据查询提供了高性能以及良好的垂直和水平可扩展性。它的性能比InfluxDB和TimescaleDB高出20倍。
+在处理数百万个独特的时间序列（又称高基数）时，它使用的RAM比InfluxDB少10倍，比Prometheus、Thanos 或 Cortex 少7倍。
+它针对具有高流失率的时间序列进行了优化。
+它提供了高数据压缩，因此与TimescaleDB相比，可以将多达70倍的数据点塞入有限的存储空间，与
+Prometheus，Thanos或Cortex相比，所需的存储空间最多可减少7倍。
+它针对具有高延迟IO和低IOPS（AWS，Google Cloud，Microsoft Azure等中的HDD和网络存储）的存储进行了优化。
+单节点VictoriaMetrics可以替代使用Thanos，M3DB，Cortex，InfluxDB或TimescaleDB等竞争解决方案构建的中等规模的集群。
+由于存储架构，它可以在不干净关闭（即OOM，硬件重置或kill -9）时保护存储免受数据损坏。
+它支持指标重新标记。
+它可以通过序列限制器处理高基数问题和高流失率问题。
+它非常适合处理来自APM、Kubernetes、物联网传感器、联网汽车、工业遥测、财务数据和各种企业工作负载的量时间序列数据。
+它具有开源群集版本。
+它具有易于设置和操作的特点
+它可以将数据存储在基于 NFS 的存储上，例如Amazon EFS和Google Filestore。
+```
+
+官网
+
+```
+https://victoriametrics.com/
+https://github.com/VictoriaMetrics/VictoriaMetrics
+```
+
+官方文档
+
+```
+https://docs.victoriametrics.com/Single-server-VictoriaMetrics.html
+```
+
+VictoriaMetrics 分为单节点和集群两个方案
+
+- 官方建议如果采集数据点(data points)低于 100w/s时推荐单节点，但不支持告警。
+- 集群支持数据水平拆分
+
+常见部署方式
+
+- 基于二进制单机安装
+- 基于集群安装
+- 基于 Docker 运行
+- 基于 Docker Compose 安装
+
+##### **VictoriaMetrics** **单机二进制布署**
+
+```
+https://github.com/VictoriaMetrics/VictoriaMetrics/releases
+```
+
+```bash
+[root@ubuntu2404 ~]#ls
+victoria-metrics-linux-amd64-v1.112.0.tar.gz
+[root@ubuntu2404 ~]#tar xf victoria-metrics-linux-amd64-v1.112.0.tar.gz -C /usr/local/bin/
+
+#准备用户和数据目录
+[root@ubuntu2404 ~]#useradd -r -s /sbin/nologin victoriametrics
+[root@ubuntu2404 ~]#mkdir -p /data/victoriametrics
+[root@ubuntu2404 ~]#chown -R victoriametrics:victoriametrics /data/ictoriametrics
+```
+
+```bash
+#创建service文件
+[root@ubuntu2404 ~]#vim /lib/systemd/system/victoriametrics.service
+[Unit]
+Description=VictoriaMetrics
+Documentation=https://docs.victoriametrics.com/Single-server-VictoriaMetrics.html
+After=network.target
+
+[Service]
+Restart=on-failure
+User=victoriametrics
+Group=victoriametrics
+ExecStart=/usr/local/bin/victoria-metrics-prod -httpListenAddr=0.0.0.0:8428 -storageDataPath=/data/victoriametrics -retentionPeriod=12
+#ExecReload=/bin/kill -HUP \$MAINPID
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+
+[root@ubuntu2404 ~]#systemctl daemon-reload && systemctl enable --now victoriametrics.service
+
+```
+
+```bash
+[root@ubuntu2404 ~]#ss -tnulp | grep vi
+tcp   LISTEN 0      4096                                   0.0.0.0:8428       0.0.0.0:*    users:(("victoria-metric",pid=19679,fd=6))    
+[root@ubuntu2404 ~]#ls /data/victoriametrics/
+data  flock.lock  indexdb  metadata  snapshots  tmp
+```
+
+**修改prometheus使用victoriametrics实现远程存储**
+
+```bash
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+#加下面两行，和global平级
+remote_write:
+  - url: http://10.0.0.200:8428/api/v1/write
+   
+[root@ubuntu2404 ~]#systemctl reload prometheus.service
+```
+
+**基于** **Docker** **部署**
+
+```bash
+docker run -it --rm -v /path/to/victoria-metrics-data:/victoria-metrics-data -p 8428:8428 victoriametrics/victoria-metrics
+```
+
+#### **VictoriaMetrics** **集群部署**
+
+![image-20250308180613787](5day-png/34victoriaMetrics集群部署.png)
+
+集群版的victoriametrics有下面主要服务组成：
+
+![image-20250308181649841](5day-png/34victoriaMetrics集群部署1.png)
+
+- vmstorage
+
+  数据存储节点，负责存储时序数据,默认使用3个端口
+
+  API Server的端口: 8482/tcp，由选项 -httpListenAddr 指定
+
+  从vminsert接收并存入数据的端口:8400/ tcp，由选项-vminsertAddr指定
+
+  从vmselect接收查询并返回数据的端口:8401 / tcp，由选项-vmselectAddr指定
+
+  vmstorage节点间不进行任何交互，都是独立的个体, 使用上层的vminsert产生副本和分片
+
+  有状态，一个vmstorage节点故障，会丢失约1/N的历史数据(N为vmstorage节点的数量)
+
+  数据存储于选项-storageDataPath指定的目录中，默认为./vmstorage-data/
+
+  vmstorage的节点数量,需要真实反映到vminsert和vmselect之上
+
+  支持单节点和集群模式:集群模式支持多租户，其API端点也有所不同
+
+- vminsert
+
+  数据插入节点，负责接收用户插入请求，基于metric名称和label使用一致性Hash算法向不同的
+
+  vmstorage写入时序数据
+
+  负责接收来自客户端的数据写入请求，并转发到选定的vmstorage节点，监听一个端口
+
+  接收数据存入请求的端口:8480/ tcp，由选项-httpListenAddr指定
+
+  它是Prometheus remote_write协议的一个实现，可接收和解析通过该协议远程写入的数据若接入的是
+
+  VM存储集群时
+
+  其调用端点的URL格式为
+
+  ```bash
+  http: //<vminsert>:8480 /insert/<accountID>/<suffix>
+  #<accountID>是租户标识
+  #<suffix>中，值/prometheus和/prometheus/api/v1/write的作用相同，专用于接收prometheus写入请求
+  ```
+
+- vmselect
+
+  数据查询节点，负责接收用户查询请求，向vmstorage查询时序数据
+
+  负责接收来自客户端的数据查询请求，转发到各vmstorage节点完成查询，并将结果合并后返回给客户
+
+  端监听一个端口
+
+  基于metric名称和label使用一致性Hash算法向不同的vmstorage查询时序数据
+
+  接收数据查询请求的端口:8481/tcp，可由选项-httpListenAddr指定
+
+  它是prometheus remote_read协议的一个实现，可接收和解析通过该协议传入的远程查询请求
+
+  专用于prometheus的URL格式为
+
+  ```
+  http://<vmselect>:8481/select/<accountID>/prometheus
+  #<accountID>是租户标识
+  ```
+
+- vmagent
+
+  可以用来替换 Prometheus，实现数据指标抓取，支持多种后端存储，会占用本地磁盘缓存
+
+  相比于 Prometheus 抓取指标来说具有更多的灵活性，支持pull和push指标
+
+  默认端口 8429
+
+- vmalert
+
+  报警相关组件，如果不需要告警功能可以不使用，默认端口为 8880
+
+以上组件中 vminsert 以及 vmselect（几乎）都是无状态的，所以扩展很简单，只有 vmstorage 是有状态的。
+
+在部署时可以按照需求，不同的微服务部署不同的副本，以应对业务需求：
+
+- 若数据量比较大，部署较多的vmstorage副本
+- 若查询请求比较多，部署较多的vmselect副本
+- 若插入请求比较多，部署较多的vminsert副本
+
+
+
+**VictoriaMetrics集群二进制部署**
+
+以下实现部署一个三节点的 VictoriaMetrics 集群，且三节点同时都提供vmstorage，vminsert和vmselect角色
+
+![image-20250308182048488](5day-png/34victoriaMetrics集群部署2.png)
+
+```bash
+#所有都做以下操作
+[root@ubuntu2404 ~]#ls
+victoria-metrics-linux-amd64-v1.112.0-cluster.tar.gz
+[root@ubuntu2404 ~]#tar xf victoria-metrics-linux-amd64-v1.112.0-cluster.tar.gz -C /usr/local/bin/
+```
+
+```bash
+[root@ubuntu2404 ~]#vim /lib/systemd/system/vmselect.service 
+[Unit]
+Description=VictoriaMetrics Cluster Vmselect
+Documentation=https://docs.victoriametrics.com/Cluster-VictoriaMetrics.html
+After=network.target
+[Service]
+Restart=on-failure
+ExecStart=/usr/local/bin/vmselect-prod \
+    -httpListenAddr=:8481 \
+    -storageNode=10.0.0.201:8401,10.0.0.202:8401,10.0.0.203:8401
+#ExecReload=/bin/kill -HUP \$MAINPID
+LimitNOFILE=65535
+[Install]
+WantedBy=multi-user.target
+[root@ubuntu2404 ~]#vim /lib/systemd/system/vmstorage.service 
+[Unit]
+Description=VictoriaMetrics Cluster Vmstorage
+Documentation=https://docs.victoriametrics.com/Cluster-VictoriaMetrics.html
+After=network.target
+
+[Service]
+Restart=on-failure
+ExecStart=/usr/local/bin/vmstorage-prod \
+    -httpListenAddr=:8482 \
+    -vminsertAddr=:8400 \
+    -vmselectAddr=:8401 \
+    -storageDataPath=/data/vmstorage \
+    -loggerTimezone=Asia/Shanghai
+#ExecReload=/bin/kill -HUP $MAINPID
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+
+[root@ubuntu2404 ~]#vim /lib/systemd/system/vminsert.service 
+[Unit]
+Description=VictoriaMetrics Cluster Vminsert
+Documentation=https://docs.victoriametrics.com/Cluster-VictoriaMetrics.html
+After=network.target
+[Service]
+Restart=on-failure
+ExecStart=/usr/local/bin/vminsert-prod -httpListenAddr :8480 -storageNode=10.0.0.201:8400,10.0.0.202:8400,10.0.0.203:8400
+#ExecReload=/bin/kill -HUP \$MAINPID
+LimitNOFILE=65535
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl daemon-reload 
+systemctl enable --now vmselect.service 
+systemctl enable --now vminsert.service 
+systemctl enable --now vmstorage.service 
+```
+
+**配置** **Prometheus** **使用** **victoriametrics** **实现集群存储**
+
+```bash
+[root@ubuntu2404 ~]#vim /usr/local/prometheus/conf/prometheus.yml
+remote_write:
+  - url: http://10.0.0.201:8480/insert/0/prometheus
+  - url: http://10.0.0.202:8480/insert/0/prometheus
+  - url: http://10.0.0.203:8480/insert/0/prometheus
+remote_read:
+  - url: http://10.0.0.201:8481/select/0/prometheus
+  - url: http://10.0.0.202:8481/select/0/prometheus
+  - url: http://10.0.0.203:8481/select/0/prometheus
+
+#说明
+10.0.0.20[1-3]:8480为 三个集群节点的IP和vminsert组件端口
+0表示租户ID,即逻辑名称空间,用于区分不同的prometheus集群
+```
+
+也可以使用负载均衡的VIP和端口,以Haproxy为例,如下配置
+
+```bash
+vim /etc/haproxy/haproxy.cfg
+......
+listen victoriametrics-vmselect-8481
+   bind 10.0.0.200:8481
+   mode tcp
+   server vmselect1 10.0.0.201:8481 check inter 1s fall 3 rise 5
+   server vmselect2 10.0.0.202:8481 check inter 1s fall 3 rise 5
+   server vmselect3 10.0.0.203:8481 check inter 1s fall 3 rise 5
+......
+#URL填写下面VIP地址和端口
+http://10.0.0.200:8481/select/0/prometheus
+```
+
+
+
+#### grafana展示
+
+1860,8919,11074,13824
+
+ 
