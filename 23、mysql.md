@@ -44,7 +44,7 @@
 
 ## MySQL执行查询语句执行流程
 
-![image-20241227152709081](D:\桌面\mage.md\笔记\5day-png\23MySQL数据库中的SQL查询语句执行流程.png)
+![image-20241227152709081](5day-png\23MySQL数据库中的SQL查询语句执行流程.png)
 
 ```powershell
 1 接收查询语句：
@@ -2083,7 +2083,7 @@ SELECT * FROM INFORMATION_SCHEMA.INNODB_TRX\G
 
 ### 死锁
 
-![image-20250104212920653](D:\桌面\mage.md\笔记\5day-png\23死锁)
+![image-20250104212920653](5day-png\23死锁)
 
 ```powershell
 在 MySQL中，两个或多个事务在同一资源相互占用，并请求锁定对方占用的资源的状态。
@@ -2882,7 +2882,7 @@ SET GLOBAL general_log_file = '/path/to/general.log';
     	但是，redo log buffer 是用户空间的数据，无法直接写入磁盘，中间必须经过操作系统缓冲区（OS Buffer），因此，从 redo log buffer 到 redo log file，实际上会先写 OS Buffer，再调用fsync() 将其刷人入到 redo log file 中。
     ```
 
-    <img src="D:\桌面\mage.md\笔记\5day-png\23事务日志性能" alt="image-20250105122252665" style="zoom:50%;" />
+    <img src="5day-png\23事务日志性能" alt="image-20250105122252665" style="zoom:50%;" />
 
 - 落盘规则
 
@@ -3525,7 +3525,7 @@ systemctl start mysql.service
 | binlog    | Master | slave 节点的数据源                               |
 | relay log | Slave  | 中继日志，从 master 节点中同步过来的数据暂存于此 |
 
-<img src="D:\桌面\mage.md\笔记\5day-png\23主从复制.png" alt="image-20250105200625478" style="zoom: 50%;" />
+<img src="5day-png\23主从复制.png" alt="image-20250105200625478" style="zoom: 50%;" />
 
 相关文件
 
@@ -3592,7 +3592,7 @@ systemctl reload apparmor
 
 ### 一主一从
 
-<img src="D:\桌面\mage.md\笔记\5day-png\23一主一从.png" alt="image-20250105200927849" style="zoom: 50%;" />
+<img src="5day-png\23一主一从.png" alt="image-20250105200927849" style="zoom: 50%;" />
 
 ```powershell
 #master:11
@@ -3694,7 +3694,7 @@ mysql> set @@sql_log_bin=1;
 
 ### 一主多从
 
-<img src="D:\桌面\mage.md\笔记\5day-png\23一主多从.png" alt="image-20250105201018212" style="zoom:50%;" />
+<img src="5day-png\23一主多从.png" alt="image-20250105201018212" style="zoom:50%;" />
 
 ```powershell
 在一主一从基础上做
@@ -3731,7 +3731,7 @@ mysql> show slave status\G
 
 ### 级联复制 
 
-<img src="D:\桌面\mage.md\笔记\5day-png\23级联复制.png" alt="image-20250105201106791" style="zoom:50%;" />
+<img src="5day-png\23级联复制.png" alt="image-20250105201106791" style="zoom:50%;" />
 
 ```powershell
 #master:11
@@ -3790,7 +3790,7 @@ mysql> show slave status\G
 
 ### 双主架构互为主从
 
-<img src="D:\桌面\mage.md\笔记\5day-png\23双主构架互为主从.png" alt="image-20250105201339142" style="zoom:50%;" />
+<img src="5day-png\23双主构架互为主从.png" alt="image-20250105201339142" style="zoom:50%;" />
 
 ```powershell
 根据前面的实验，master-2 己经是 master-1 的从节点了，此处只需要把 master-1 配置为 master-2 的从节点即可。
@@ -3861,19 +3861,19 @@ master2同样执行
 
 ### 多主一从
 
-<img src="D:\桌面\mage.md\笔记\5day-png\23多主一从.png" alt="image-20250105201211989" style="zoom:50%;" />
+<img src="5day-png\23多主一从.png" alt="image-20250105201211989" style="zoom:50%;" />
 
 
 
 ### 环状复制，使用较少
 
-<img src="D:\桌面\mage.md\笔记\5day-png\23环形复制.png" alt="image-20250105201421457" style="zoom:50%;" />
+<img src="5day-png\23环形复制.png" alt="image-20250105201421457" style="zoom:50%;" />
 
 
 
 ### 半同步复制原理解读
 
-<img src="D:\桌面\mage.md\笔记\5day-png\23半同步复制.png" alt="image-20250107123252528" style="zoom: 33%;" />
+<img src="5day-png\23半同步复制.png" alt="image-20250107123252528" style="zoom: 33%;" />
 
 ```powershell
 异步复制
@@ -3899,7 +3899,7 @@ master2同样执行
 rpl_semi_sync_master_wait_point=after_commit
 ```
 
-<img src="D:\桌面\mage.md\笔记\5day-png\23mysql5.7之前半同步复制默认策略.png" alt="image-20250107124313095" style="zoom: 33%;" />
+<img src="5day-png\23mysql5.7之前半同步复制默认策略.png" alt="image-20250107124313095" style="zoom: 33%;" />
 
 ​	waiting Slave dump表示，等待slave返回成功的数据信息，如果返回的话，给客户端返回成功。如 果没有等后，等待10s后，变成异步模式，给客户端返回成功。 
 
@@ -3928,7 +3928,7 @@ rpl_semi_sync_master_wait_point=after_commit
 rpl_semi_sync_master_wait_point=after_sync
 ```
 
-<img src="D:\桌面\mage.md\笔记\5day-png\23MySQL5.7 以及之后的半同步复制.png" alt="image-20250107124700855" style="zoom:33%;" />
+<img src="5day-png\23MySQL5.7 以及之后的半同步复制.png" alt="image-20250107124700855" style="zoom:33%;" />
 
 在此半同步策略配置中，客户端的写操作先不提交事务，而是先写二进制日志，然后向从库从步数据， 由于在主节点上的事务还没提交，所以此时其它进程查不到当前的写操作，不会出现幻读的问题，而且 主节点要确认至少有一个从节点的数据同步成功了，再会提交事务，这样也保证了主从之间的数据一致 性，不会存在丢失数据的情况。
 
@@ -5266,9 +5266,9 @@ MHA: Master High Availiability，对主节点进行监控，可以实现自动�
 - 故障服务器自动被剔除集群，将配置信息去掉
 - 旧的master的VIP漂移到新的master上，用户应用就可以访问新的Master
 
-<img src="D:\桌面\mage.md\笔记\5day-png\23MHA架构.png" alt="image-20250107172023597" style="zoom:33%;" />
+<img src="5day-png\23MHA架构.png" alt="image-20250107172023597" style="zoom:33%;" />
 
-<img src="D:\桌面\mage.md\笔记\5day-png\23MHA工作原理.png" alt="image-20250107172055042" style="zoom:33%;" />
+<img src="5day-png\23MHA工作原理.png" alt="image-20250107172055042" style="zoom:33%;" />
 
 #### 选主 
 
@@ -5817,7 +5817,7 @@ mysql> select * from db1.stu;
 6 rows in set (0.00 sec)
 ```
 
-<img src="D:\桌面\mage.md\笔记\5day-png\23GC.png" alt="image-20250109205445321" style="zoom: 33%;" />
+<img src="5day-png\23GC.png" alt="image-20250109205445321" style="zoom: 33%;" />
 
 ```powershell
 10.0.0.11

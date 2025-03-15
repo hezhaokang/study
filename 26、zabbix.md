@@ -442,9 +442,9 @@ http {
 
 #### 1 使用Template App Nginx by HTTP
 
-![image-20250114171706109](D:\桌面\mage.md\笔记\5day-png\26使用http监控nginx1.png)
+![image-20250114171706109](5day-png\26使用http监控nginx1.png)
 
-![image-20250114171754233](D:\桌面\mage.md\笔记\5day-png\26使用http监控nginx2.png)
+![image-20250114171754233](5day-png\26使用http监控nginx2.png)
 
 
 
@@ -454,9 +454,9 @@ http {
 
 #### 2 使用Template App Nginx by Zabbix agent
 
-![image-20250114172639652](D:\桌面\mage.md\笔记\5day-png\26使用agent监控nginx1.png)
+![image-20250114172639652](5day-png\26使用agent监控nginx1.png)
 
-![image-20250114172724041](D:\桌面\mage.md\笔记\5day-png\26使用agent监控nginx2.png)
+![image-20250114172724041](5day-png\26使用agent监控nginx2.png)
 
 
 
@@ -511,9 +511,9 @@ ping.path = /ping
 
 ### PHP-FPM by HTTP
 
-![image-20250114174340875](D:\桌面\mage.md\笔记\5day-png\26使用http监控php-fpm1.png)
+![image-20250114174340875](5day-png\26使用http监控php-fpm1.png)
 
-![image-20250114174422168](D:\桌面\mage.md\笔记\5day-png\26使用http监控php-fpm2.png)
+![image-20250114174422168](5day-png\26使用http监控php-fpm2.png)
 
 
 
@@ -521,9 +521,9 @@ ping.path = /ping
 
 ### PHP-FPM by Zabbix agent
 
-![image-20250114181748967](D:\桌面\mage.md\笔记\5day-png\26使用agent监控php-fpm1.png)
+![image-20250114181748967](5day-png\26使用agent监控php-fpm1.png)
 
-![image-20250114181849827](D:\桌面\mage.md\笔记\5day-png\26使用agent监控php-fpm2.png)
+![image-20250114181849827](5day-png\26使用agent监控php-fpm2.png)
 
  
 
@@ -703,9 +703,9 @@ http 响应码
 
 **范例: 将net.tcp.listen[80]内置的监控项为1时,映射为up,为0时,映射为down**
 
-![image-20250114194112166](D:\桌面\mage.md\笔记\5day-png\26创建映射值1.png)
+![image-20250114194112166](5day-png\26创建映射值1.png)
 
-![image-20250114194235762](D:\桌面\mage.md\笔记\5day-png\26创建映射值2.png)
+![image-20250114194235762](5day-png\26创建映射值2.png)
 
 ### 使用值映射
 
@@ -936,7 +936,7 @@ PfSense:hrStorageSize[{#SNMPVALUE}].last()}*0.1
 
 ### 开启 Zabbix Server的声音提示
 
-![image-20250114202447795](D:\桌面\mage.md\笔记\5day-png\26开启 Zabbix Server的声音提示.png)
+![image-20250114202447795](5day-png\26开启 Zabbix Server的声音提示.png)
 
 
 

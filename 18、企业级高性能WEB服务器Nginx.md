@@ -2,7 +2,7 @@
 
 ## nginx构架
 
-![image-20241203185119875](D:\桌面\mage.md\笔记\5day-png\18nginx构架.png)
+![image-20241203185119875](5day-png\18nginx构架.png)
 
 ```
 在Nginx中，Master进程和Worker进程分别承担不同的角色，共同协作以提供高性能的服务
@@ -2983,7 +2983,7 @@ bbbbb
 代理分为两种，分别是正向代理和反向代理。正向代理（Forward Proxy） 和 反向代理（Reverse Proxy） 是两种常见的代理服务器，它们用于处理网络通信中的不同方向和用途。
 ```
 
-![image-20241207113134384](D:\桌面\mage.md\笔记\5day-png\18nginx代理图解.png)
+![image-20241207113134384](5day-png\18nginx代理图解.png)
 
 正向代理（Forward Proxy）
 
@@ -3045,7 +3045,7 @@ Nginx 需要在应用层接收请求，根据客户端的请求参数和Nginx中
 LVS 通常做四层代理，Nginx 做七层代理
 ```
 
-![image-20241207113518518](D:\桌面\mage.md\笔记\5day-png\18lvs和nginx.png)
+![image-20241207113518518](5day-png\18lvs和nginx.png)
 
 ### 反向代理
 
@@ -3964,7 +3964,7 @@ upstream group1{
 | 5                   | 5                            | 5    | 顺时针第一个 |
 | ......              |                              |      |              |
 
-![image-20241207185341884](D:\桌面\mage.md\笔记\5day-png\18hash环.png)
+![image-20241207185341884](5day-png\18hash环.png)
 
 环偏移
 

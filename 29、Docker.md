@@ -30,11 +30,11 @@ Docker 即码头工人
 
 **Docker 和虚拟机，物理主机**
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28docker虚拟主机物理主机.png" alt="image-20250208195218467" style="zoom: 33%;" />
+<img src="5day-png\28docker虚拟主机物理主机.png" alt="image-20250208195218467" style="zoom: 33%;" />
 
 **容器和虚拟机技术比较**
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28容器和虚拟技术比较.png" alt="image-20250208195437173" style="zoom:33%;" />
+<img src="5day-png\28容器和虚拟技术比较.png" alt="image-20250208195437173" style="zoom:33%;" />
 
 - 传统虚拟机是虚拟出一个主机硬件,并且运行一个完整的操作系统 ,然后在这个系统上安装和运行软件 
 - 容器内的应用直接运行在宿主机的内核之上,容器并没有自己的内核,也不需要虚拟硬件,相当轻量化 
@@ -64,7 +64,7 @@ Docker 中文网站: http://www.docker.org.cn/
 - Docker 仓库(Registry): 保存镜像的仓库，官方仓库: https://hub.docker.com/，可以搭建私有仓库 harbor 
 - Docker 容器(Container): 容器是从镜像生成对外提供服务的一个或一组服务,其本质就是将镜像中 的程序启动后生成的进程
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28docker组成.png" alt="image-20250208200038195" style="zoom: 33%;" />
+<img src="5day-png\28docker组成.png" alt="image-20250208200038195" style="zoom: 33%;" />
 
 ## Namespace
 
@@ -78,7 +78,7 @@ Docker 中文网站: http://www.docker.org.cn/
 - 每个容器都要不要有root用户？
 - 怎么解决账户重名问题？
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28Namespace.png" alt="image-20250208200522704" style="zoom:50%;" />
+<img src="5day-png\28Namespace.png" alt="image-20250208200522704" style="zoom:50%;" />
 
 namespace是Linux系统的底层概念，在LInux内核层实现，即有一些不同类型的命名空间被部署在内 核，各个docker容器运行在同一个docker主进程并且共用同一个宿主机系统内核，各docker容器运行在 宿主机的用户空间，每个容器都要有类似于虚拟机一样的相互隔离的运行空间，但是容器技术是在一个 进程内实现运行指定服务的运行环境，并且还可以保护宿主机内核不受其他进程的干扰和影响，如文件 系统空间、网络空间、进程空间等，目前主要通过以下技术实现容器运行空间的相互隔离: 
 
@@ -272,7 +272,7 @@ CONFIG_MEMCG_KMEM=y
 
 有了以上的namespace、cgroups就具备了基础的容器运行环境，但是还需要有相应的容器创建与删除 的管理工具、以及怎么样把容器运行起来、容器数据怎么处理、怎么进行启动与关闭等问题需要解决， 于是容器管理技术出现了。目前主要是使用docker，containerd等，早期使用 LXC
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28容器管理工具.png" alt="image-20250208205801730" style="zoom: 33%;" />
+<img src="5day-png\28容器管理工具.png" alt="image-20250208205801730" style="zoom: 33%;" />
 
 ### LXC
 
@@ -288,7 +288,7 @@ Docker 相当于增强版的LXC,功能更为强大和易用,也是当前最主�
 
 Docker 先启动一个容器也需要一个外部模板，也称为镜像，docke的镜像可以保存在一个公共的地方共 享使用，只要把镜像下载下来就可以使用，最主要的是可以在镜像基础之上做自定义配置并且可以再把 其提交为一个镜像，一个镜像可以被启动为多个容器。
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28Docker镜像分层.png" alt="image-20250208210340054" style="zoom:33%;" />
+<img src="5day-png\28Docker镜像分层.png" alt="image-20250208210340054" style="zoom:33%;" />
 
 Docker的镜像是分层的，镜像底层为库文件且只读层即不能写入也不能删除数据，从镜像加载启动为一 个容器后会生成一个可写层，其写入的数据会复制到宿主机上对应容器的目录，但是容器内的数据在删 除容器后也会被随之删除。
 
@@ -409,7 +409,7 @@ runtime 类型:
 
 **Docker 的运行机制**
 
-![image-20250208213214850](D:\桌面\mage.md\笔记\5day-png\28docker运行机制.png)
+![image-20250208213214850](5day-png\28docker运行机制.png)
 
 ### 镜像仓库 Registry
 
@@ -1478,13 +1478,13 @@ Server: Docker Engine - Community
 
 ### 镜像结构和原理
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28镜像结构.png" alt="image-20250209170720048" style="zoom:33%;" />
+<img src="5day-png\28镜像结构.png" alt="image-20250209170720048" style="zoom:33%;" />
 
 镜像即创建容器的模版，含有启动容器所需要的文件系统及所需要的内容，因此镜像主要用于方便和快 速的创建并启动容器 
 
 镜像含里面是一层层的文件系统,叫做 Union FS（联合文件系统）,联合文件系统，可以将几层目录挂载 到一起（就像千层饼，洋葱头，俄罗斯套娃一样），形成一个虚拟文件系统,虚拟文件系统的目录结构就 像普通 linux 的目录结构一样，镜像通过这些文件再加上宿主机的内核共同提供了一个 linux 的虚拟环 境，每一层文件系统叫做一层 layer，联合文件系统可以对每一层文件系统设置三种权限，只读 （readonly）、读写（readwrite）和写出（whiteout-able），但是镜像中每一层文件系统都是只读的, 构建镜像的时候，从一个最基本的操作系统开始，每个构建提交的操作都相当于做一层的修改，增加了 一层文件系统，一层层往上叠加，上层的修改会覆盖底层该位置的可见性，这也很容易理解，就像上层 把底层遮住了一样，当使用镜像的时候，我们只会看到一个完全的整体，不知道里面有几层,实际上也不 需要知道里面有几层，结构如下:
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28镜像结构1.png" alt="image-20250209170800786" style="zoom:25%;" />
+<img src="5day-png\28镜像结构1.png" alt="image-20250209170800786" style="zoom:25%;" />
 
 一个典型的 Linux文件系统由 bootfs 和 rootfs 两部分组成 
 
@@ -1494,11 +1494,11 @@ rootfs (root file system) 包含的就是典型 Linux 系统中的/dev，/proc�
 
 一般的镜像通常都比较小，官方提供的Ubuntu镜像只有60MB多点，而 CentOS 基础镜像也只有200MB 左右，一些其他版本的镜像甚至只有几MB，比如: busybox 才1.22MB，alpine镜像也只有5M左右。镜 像直接调用宿主机的内核，镜像中只提供 rootfs，也就是只需要包括最基本的命令,配置文件和程序库等 相关文件就可以了。 下图就是有两个不同的镜像在一个宿主机内核上实现不同的rootfs。
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28内核上实现不同的rootfs.png" alt="image-20250209171242039" style="zoom:25%;" />
+<img src="5day-png\28内核上实现不同的rootfs.png" alt="image-20250209171242039" style="zoom:25%;" />
 
 **容器、镜像和父镜像关系**
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28容器、镜像和父镜像关系.png" alt="image-20250209171515918" style="zoom:25%;" />
+<img src="5day-png\28容器、镜像和父镜像关系.png" alt="image-20250209171515918" style="zoom:25%;" />
 
 范例: 查看镜像的分层结构
 
@@ -2342,7 +2342,7 @@ docker rmi 镜像ID/镜像名称  		#删除指定ID的镜像，此镜像对应�
 
 **启动容器流程**
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28启动容器流程.png" alt="image-20250210204750142" style="zoom: 33%;" />
+<img src="5day-png\28启动容器流程.png" alt="image-20250210204750142" style="zoom: 33%;" />
 
 **启动容器用法**
 
@@ -4914,7 +4914,7 @@ checkpoint1
 
 ### Docker 镜像说明
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28DOcker镜像.png" alt="image-20250211205231507" style="zoom: 25%;" />
+<img src="5day-png\28DOcker镜像.png" alt="image-20250211205231507" style="zoom: 25%;" />
 
 **镜像中有没有内核**
 
@@ -5299,7 +5299,7 @@ tag 和 digest是可选项，如果不指定，默认为latest
 
 **说明: 关于scratch 镜像**
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28scratch 镜像.png" alt="image-20250213131359880" style="zoom: 50%;" />
+<img src="5day-png\28scratch 镜像.png" alt="image-20250213131359880" style="zoom: 50%;" />
 
 ```
 FROM scratch
@@ -5642,7 +5642,7 @@ COPY nginx.conf /apps/nginx/conf/nginx.conf
 
 #### CMD: 容器启动命令
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28CMD容器启动命令.png" alt="image-20250213145048070" style="zoom:33%;" />
+<img src="5day-png\28CMD容器启动命令.png" alt="image-20250213145048070" style="zoom:33%;" />
 
 一个容器中通常需要一个持续运行的业务主进程 
 
@@ -6327,7 +6327,7 @@ Dockerfile 构建过程
 
 Dockerfile 指令总结
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28Dockerfile指令.png" alt="image-20250213201433866" style="zoom: 25%;" />
+<img src="5day-png\28Dockerfile指令.png" alt="image-20250213201433866" style="zoom: 25%;" />
 
 #### 构建镜像docker build 命令
 
@@ -6807,7 +6807,7 @@ nsfs on /run/docker/netns/0d2cf6c147c4 type nsfs (rw)
 "状态”可以理解为“记忆”，有状态对应有记忆，无状态对应无记忆
 ```
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28持久化.png" alt="image-20250215155305261" style="zoom:50%;" />
+<img src="5day-png\28持久化.png" alt="image-20250215155305261" style="zoom:50%;" />
 
 - 左侧是无状态的http请求服务，右侧为有状态 
 

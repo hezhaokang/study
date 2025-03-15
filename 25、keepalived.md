@@ -75,7 +75,7 @@
 
 ## VRRP
 
-<img src="D:\桌面\mage.md\笔记\5day-png\25VRRP.png" alt="image-20250111104750586" style="zoom: 33%;" />
+<img src="5day-png\25VRRP.png" alt="image-20250111104750586" style="zoom: 33%;" />
 
 ### 相关术语
 
@@ -533,7 +533,7 @@ vrrp_instance VI_1 {
 
 ## Keepalived 实现 VRRP
 
-<img src="D:\桌面\mage.md\笔记\5day-png\25keepalivedVRRP结构.png" alt="image-20250111152419838" style="zoom:33%;" />
+<img src="5day-png\25keepalivedVRRP结构.png" alt="image-20250111152419838" style="zoom:33%;" />
 
 增加仅主机网卡eth1，让VRRP协议走eth1网卡
 
@@ -1517,7 +1517,7 @@ virtual_server 10.0.0.10 80 {
 
 
 
-<img src="D:\桌面\mage.md\笔记\5day-png\25单主的 LVS-DR 模式.png" alt="image-20250112123315791" style="zoom:50%;" />
+<img src="5day-png\25单主的 LVS-DR 模式.png" alt="image-20250112123315791" style="zoom:50%;" />
 
 ```powershell
 #10.0.0.201/10.0.0.201
@@ -1701,7 +1701,7 @@ esac
 
 
 
-<img src="D:\桌面\mage.md\笔记\5day-png\25双主的 LVS-DR 模式.png" alt="image-20250112123547628" style="zoom:50%;" />
+<img src="5day-png\25双主的 LVS-DR 模式.png" alt="image-20250112123547628" style="zoom:50%;" />
 
 两台keepalived+LVS，后端四台nginx服务器
 
@@ -2139,7 +2139,7 @@ vrrp_instance VI_1 {
 
 ## 利用脚本实现主从角色切换
 
-<img src="D:\桌面\mage.md\笔记\5day-png\25利用脚本实现主从角色切换.png" alt="image-20250112151955075" style="zoom:50%;" />
+<img src="5day-png\25利用脚本实现主从角色切换.png" alt="image-20250112151955075" style="zoom:50%;" />
 
 ```powershell
 #10.0.0.201：
@@ -2277,7 +2277,7 @@ virtual_server 10.0.0.10 80 {
 
 ## 实现单主模式的 Nginx 反向代理的高可用
 
-<img src="D:\桌面\mage.md\笔记\5day-png\25单主模式的 Nginx 反向代理的高可用.png" alt="image-20250112172258664" style="zoom:50%;" />
+<img src="5day-png\25单主模式的 Nginx 反向代理的高可用.png" alt="image-20250112172258664" style="zoom:50%;" />
 
 ```powershell
 #10.0.0.201\10.0.0.202
@@ -2390,7 +2390,7 @@ vrrp_instance VI_1 {
 
 ## 实现双主模式 Nginx 反向代理的高可用
 
-<img src="D:\桌面\mage.md\笔记\5day-png\25双主模式 Nginx 反向代理的高可用.png" alt="image-20250112175513885" style="zoom:50%;" />
+<img src="5day-png\25双主模式 Nginx 反向代理的高可用.png" alt="image-20250112175513885" style="zoom:50%;" />
 
 ```powershell
 #10.0.0.201,10.0.0.202
@@ -2559,7 +2559,7 @@ vrrp_instance VI_2 {
 
 
 
-<img src="D:\桌面\mage.md\笔记\5day-png\25HAProxy 高可用" alt="image-20250112183844322" style="zoom:50%;" />
+<img src="5day-png\25HAProxy 高可用" alt="image-20250112183844322" style="zoom:50%;" />
 
 ```powershell
 #10.0.0.201
@@ -2671,7 +2671,7 @@ vrrp_instance VI_1 {
 
 ## 实现 MySQL 双主模式的高可用
 
-![image-20250113190741542](D:\桌面\mage.md\笔记\5day-png\25MySQL 双主模式的高可用.png)
+![image-20250113190741542](5day-png\25MySQL 双主模式的高可用.png)
 
 ```powershell
 #配置mysql双主模式
@@ -2884,7 +2884,7 @@ vrrp_instance VI_1 {
 
 ## 实现LVS-NAT模型的双vip
 
-<img src="D:\桌面\mage.md\笔记\5day-png\25实现LVS-NAT模型的双vip.png" alt="image-20250113191237718" style="zoom:50%;" />
+<img src="5day-png\25实现LVS-NAT模型的双vip.png" alt="image-20250113191237718" style="zoom:50%;" />
 
 ```powershell
 10.0.0.100/10.0.0.101
@@ -3066,7 +3066,7 @@ vrrp_instance VI_2 {
 
 ## 实现单主的 LVS-DR 模式，利用FWM绑定成多个服务为一个集群服务
 
-<img src="D:\桌面\mage.md\笔记\5day-png\25单主的 LVS-DR 模式，利用FWM绑定成多个服务为一个集群服务.png" alt="image-20250113211938893" style="zoom:50%;" />
+<img src="5day-png\25单主的 LVS-DR 模式，利用FWM绑定成多个服务为一个集群服务.png" alt="image-20250113211938893" style="zoom:50%;" />
 
 ```powershell
 后端服务配置HTTPS服务

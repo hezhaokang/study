@@ -183,7 +183,7 @@ NoSQL 适合处理大规模、快速变化的非结构化数据，如社交媒�
 
 Base理论是三要素的缩写：基本可用（Basically Available）、软状态（Soft-state）、最终一致性 （Eventually Consistency）
 
-<img src="D:\桌面\mage.md\笔记\5day-png\27Base理论.png" alt="image-20250118142333427" style="zoom: 25%;" />
+<img src="5day-png\27Base理论.png" alt="image-20250118142333427" style="zoom: 25%;" />
 
 - 基本可用 （Basically Available） 
 
@@ -448,9 +448,9 @@ Redis 支持多种数据格式的序列化和反序列化，例如 JSON、MsgPac
 
 - 基于Epoll实现IO多路复用
 
-<img src="D:\桌面\mage.md\笔记\5day-png\27单线程.png" alt="image-20250118143429429" style="zoom: 33%;" />
+<img src="5day-png\27单线程.png" alt="image-20250118143429429" style="zoom: 33%;" />
 
-<img src="D:\桌面\mage.md\笔记\5day-png\27单线程1.png" alt="image-20250118143537180" style="zoom: 25%;" />
+<img src="5day-png\27单线程1.png" alt="image-20250118143537180" style="zoom: 25%;" />
 
 **注意事项:**
 
@@ -600,11 +600,11 @@ Redis 和 Memcached 都是高性能的缓存系统，但它们在功能、特性
 
 ### 数据更新操作流程：
 
-<img src="D:\桌面\mage.md\笔记\5day-png\27数据更新操作流程.png" style="zoom:50%;" />
+<img src="5day-png\27数据更新操作流程.png" style="zoom:50%;" />
 
 ### 数据读操作流程
 
-<img src="D:\桌面\mage.md\笔记\5day-png\27数据读操作流程.png" style="zoom:50%;" />
+<img src="5day-png\27数据读操作流程.png" style="zoom:50%;" />
 
 ## 缓存穿透,缓存击穿,缓存雪崩和缓存 crash
 
@@ -1887,7 +1887,7 @@ OK
 
 ### 慢查询
 
-<img src="D:\桌面\mage.md\笔记\5day-png\27慢查询.png" alt="image-20250119162346239" style="zoom: 33%;" />
+<img src="5day-png\27慢查询.png" alt="image-20250119162346239" style="zoom: 33%;" />
 
 范例: SLOW LOG
 
@@ -1942,11 +1942,11 @@ Redis支持两种数据持久化保存方法
 
 - AOF:AppendOnlyFile
 
-<img src="D:\桌面\mage.md\笔记\5day-png\27redis持久化" alt="image-20250119164007390" style="zoom:33%;" />
+<img src="5day-png\27redis持久化" alt="image-20250119164007390" style="zoom:33%;" />
 
 ### RDB
 
-<img src="D:\桌面\mage.md\笔记\5day-png\27RDB工作原理.png" alt="image-20250119165113016" style="zoom:33%;" />
+<img src="5day-png\27RDB工作原理.png" alt="image-20250119165113016" style="zoom:33%;" />
 
 RDB(Redis DataBase)：是基于某个时间点的快照，注意RDB只保留当前最新版本的一个快照 
 
@@ -1978,7 +1978,7 @@ total 251016
 
 #### **RDB bgsave 实现快照的具体过程:**
 
-<img src="D:\桌面\mage.md\笔记\5day-png\27RDB的bgsave.png" alt="image-20250119171202446" style="zoom: 33%;" />
+<img src="5day-png\27RDB的bgsave.png" alt="image-20250119171202446" style="zoom: 33%;" />
 
 首先从redis 主进程先fork生成一个新的子进程,此子进程负责将Redis内存数据保存为一个临时文件tmp- <子进程pid>.rdb 
 
@@ -2194,7 +2194,7 @@ color "Backup redis RDB" 0
 
 ####  AOF 工作原理
 
-<img src="D:\桌面\mage.md\笔记\5day-png\27AOF工作原理.png" alt="image-20250119173239708" style="zoom:33%;" />
+<img src="5day-png\27AOF工作原理.png" alt="image-20250119173239708" style="zoom:33%;" />
 
 AOF 即 AppendOnlyFile，AOF 和 RDB 都采有COW机制 
 
@@ -2317,7 +2317,7 @@ aof-load-truncated yes
 
 7.X版本之后版本，新的AOF文件覆盖AOF目录中的RDB文件appendonly.aof.2.base.rdb，并生成一个 新空的AOF文件appendonly.aof.2.incr.aof，此文件的编号会加1，同时更新appendonly.aof.manifest 中的内容
 
-<img src="D:\桌面\mage.md\笔记\5day-png\27AOF重写.png" alt="image-20250119180401950" style="zoom: 33%;" />
+<img src="5day-png\27AOF重写.png" alt="image-20250119180401950" style="zoom: 33%;" />
 
 AOF rewrite 重写相关配置
 
@@ -2334,7 +2334,7 @@ aof-load-truncated yes 			#是否加载由于某些原因导致的末尾异常�
 
 auto-aof-rewrite-percentage 100
 
-<img src="D:\桌面\mage.md\笔记\5day-png\27AOF重写日志整理.png" alt="image-20250119181523271" style="zoom: 67%;" />
+<img src="5day-png\27AOF重写日志整理.png" alt="image-20250119181523271" style="zoom: 67%;" />
 
 
 

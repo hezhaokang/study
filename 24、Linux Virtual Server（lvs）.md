@@ -128,7 +128,7 @@ RIP：Real server IP
 
 访问流程：CIP <--> VIP == DIP <--> RIP
 
-<img src="D:\桌面\mage.md\笔记\5day-png\24lvs流程.png" style="zoom:50%;" />
+<img src="5day-png\24lvs流程.png" style="zoom:50%;" />
 
 ## LVS 集群的工作模式
 
@@ -152,15 +152,15 @@ lvs-nat：本质是多目标IP的DNAT，通过将请求报文中的目标地址�
 
 （4）VS必须是Linux系统，RS可以是任意OS系统
 
-<img src="D:\桌面\mage.md\笔记\5day-png\24lvsnat.png" style="zoom:50%;" />
+<img src="5day-png\24lvsnat.png" style="zoom:50%;" />
 
 ### LVS 的 DR 模式
 
-<img src="D:\桌面\mage.md\笔记\5day-png\24lvsDR.png" style="zoom:33%;" />
+<img src="5day-png\24lvsDR.png" style="zoom:33%;" />
 
 LVS-DR：Direct Routing，直接路由，LVS默认模式,应用最广泛,通过为请求报文重新封装一个MAC首部 进行转发，源MAC是DIP所在的接口的MAC，目标MAC是某挑选出的RS的RIP所在接口的MAC地址；源 IP/PORT，以及目标IP/PORT均保持不变
 
-<img src="D:\桌面\mage.md\笔记\5day-png\24lvsDR1.png" style="zoom:50%;" />
+<img src="5day-png\24lvsDR1.png" style="zoom:50%;" />
 
 DR模式的特点： 
 
@@ -193,11 +193,11 @@ DR模式的特点：
 
 ### LVS 的 TUN 模式
 
-<img src="D:\桌面\mage.md\笔记\5day-png\24tun模式.png" alt="image-20250109100419438" style="zoom: 33%;" />
+<img src="5day-png\24tun模式.png" alt="image-20250109100419438" style="zoom: 33%;" />
 
 转发方式：不修改请求报文的IP首部（源IP为CIP，目标IP为VIP），而在原IP报文之外再封装一个IP首部 （源IP是DIP，目标IP是RIP），将报文发往挑选出的目标RS；RS直接响应给客户端（源IP是VIP，目标IP 是CIP）
 
-<img src="D:\桌面\mage.md\笔记\5day-png\24tun模式1.png" alt="image-20250109100602009" style="zoom:50%;" />
+<img src="5day-png\24tun模式1.png" alt="image-20250109100602009" style="zoom:50%;" />
 
 **TUN模式特点**： 
 
@@ -219,7 +219,7 @@ LAN环境一般多采用DR模式，WAN环境虽然可以用TUN模式，但是一
 
 ### LVS 的 FULLNAT 模式
 
-<img src="D:\桌面\mage.md\笔记\5day-png\24fullnat.png" alt="image-20250109101907670" style="zoom:50%;" />
+<img src="5day-png\24fullnat.png" alt="image-20250109101907670" style="zoom:50%;" />
 
 通过同时修改请求报文的源IP地址和目标IP地址进行转发 
 
@@ -961,7 +961,7 @@ ipvsadm -A|E -t|u|f service-address -s scheduler -p [timeout]
 
 ### LVS-NAT模式
 
-<img src="D:\桌面\mage.md\笔记\5day-png\24LVS-NAT.png" alt="image-20250109120613346" style="zoom:50%;" />
+<img src="5day-png\24LVS-NAT.png" alt="image-20250109120613346" style="zoom:50%;" />
 
 ```powershell
 192.168.10.200\10.0.0.200:
@@ -1031,7 +1031,7 @@ DR模型中各主机上均需要配置VIP，解决地址冲突的方式有三种
 3. 每个Web服务器配置VIP 
 4. 每个web服务器可以出外网
 
-<img src="D:\桌面\mage.md\笔记\5day-png\24LVS-DR模式单网段.png" alt="image-20250109145058976" style="zoom:50%;" />
+<img src="5day-png\24LVS-DR模式单网段.png" alt="image-20250109145058976" style="zoom:50%;" />
 
 ```powershell
 #route:10.0.0.101\192.168.10.101
@@ -1131,7 +1131,7 @@ lo（本地回环）网卡的子网掩码只能配置为 32 位的原因，主�
 
 ### LVS-DR模式多网段
 
-<img src="D:\桌面\mage.md\笔记\5day-png\24lvs-DR模式多网段.png" alt="image-20250109145634853" style="zoom:50%;" />
+<img src="5day-png\24lvs-DR模式多网段.png" alt="image-20250109145634853" style="zoom:50%;" />
 
 ```bash
 #route:10.0.0.101\192.168.10.101
@@ -1277,7 +1277,7 @@ nmcli connection up eth0
 
 ### LVS-TUNNEL隧道模式
 
-![image-20250109153331119](D:\桌面\mage.md\笔记\5day-png\24LVS-TUNNAL隧道模式.png)
+![image-20250109153331119](5day-png\24LVS-TUNNAL隧道模式.png)
 
 ```powershell
 #LVS,RS1,RS2
@@ -1332,7 +1332,7 @@ while :;do curl 10.0.0.10;sleep 0.3;done
 10.0.0.201 10.0.0.10 RS1
 ```
 
-<img src="D:\桌面\mage.md\笔记\5day-png\24LVS-TUNNEL隧道双IP头.png" alt="image-20250109164919246" style="zoom:50%;" />
+<img src="5day-png\24LVS-TUNNEL隧道双IP头.png" alt="image-20250109164919246" style="zoom:50%;" />
 
 
 

@@ -2,7 +2,7 @@
 
 ## JumpServer 生产应用场景
 
-<img src="D:\桌面\mage.md\笔记\5day-png\28JumpServer 生产应用场景.png" alt="image-20250218161758111" style="zoom:50%;" />
+<img src="5day-png\28JumpServer 生产应用场景.png" alt="image-20250218161758111" style="zoom:50%;" />
 
 ##  JumpServer的优势和功能
 
@@ -13,11 +13,11 @@
 - 云端存储: 审计录像云端存储，永不丢失 
 - 多租户: 一套系统，多个子公司和部门同时使
 
-<img src="D:\桌面\mage.md\笔记/5day-png\28jumpserver功能列表.png" alt="image-20250218161959094" style="zoom:50%;" />
+<img src="5day-png\28jumpserver功能列表.png" alt="image-20250218161959094" style="zoom:50%;" />
 
 ##  JumpServer 组成
 
-<img src="D:\桌面\mage.md\笔记\5day-png\29jumpserver组成.png" alt="image-20250218162108104" style="zoom:50%;" />
+<img src="5day-png\29jumpserver组成.png" alt="image-20250218162108104" style="zoom:50%;" />
 
 - Core 组件是 JumpServer 的核心组件，其他组件依赖此组件启动。 
 - Koko 是服务于类 Unix 资产平台的组件，通过 SSH、Telnet 协议提供字符型连接。 
