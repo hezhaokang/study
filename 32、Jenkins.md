@@ -4685,3 +4685,17 @@ pipeline {
 - 简述什么是版本控制系统（VCS）？
 - 简述什么是 DevOps？
 - 简述软件交付过程？四种常见场景：传统方式，基于Ansible，Docker 容器，Kubernetes
+
+
+
+
+
+
+
+
+
+
+
+
+
+20250316

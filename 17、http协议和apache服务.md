@@ -1886,3 +1886,24 @@ root@ubuntu-43:softs # mv wordpress/* /var/www/html/blog.com/
 root@ubuntu-43:softs # chown -R www-data:www-data /var/www/html/blog.com
 ```
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+20250316

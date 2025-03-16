@@ -807,3 +807,14 @@ ansible-playbook yaml-test.yaml
 ansible 10.0.0.13 -m shell -a "netstat -tnulp | egrep 'Proto|apache' "
 ```
 
+
+
+
+
+
+
+
+
+
+
+20250316

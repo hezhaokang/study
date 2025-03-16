@@ -595,3 +595,29 @@ https://github.com/jumpserver/VideoPlayer/releases
 ### 资产的批量导出和导入
 
 ![image-20250219204242306](5day-png/29资产的批量导入导出.png)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+20250316

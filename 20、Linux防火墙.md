@@ -833,3 +833,13 @@ iptables -A INPUT -p tcp -m conntrack --ctstate NEW,ESTABLISHED -j LOG --log-pre
   - 每个链针对不同类型的流量（如输入、输出、转发、路由前后等）进行处理。
 
 这种结构使得 `iptables` 非常灵活，能够根据需要定制不同类型的网络流量处理策略。
+
+
+
+
+
+
+
+
+
+20250316
