@@ -1,5 +1,7 @@
 # Kubernetes 资源对象 和 Pod 资源
 
+![image-20250328194409902](kubernetes/image-20250328194409902.png)
+
 ## **Kubernetes 集群管理工具 kubectl 命令**
 
 对于kubectl主要有8组命令，分别是：基本命令、部署命令、集群管理命令排障调试命令、高级命令、设置命令、其他命令等
