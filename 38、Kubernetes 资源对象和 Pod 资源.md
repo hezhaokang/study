@@ -3070,7 +3070,7 @@ Kubernetes中，对于每种资源的配额限定都需要两个参数：Request
 https://github.com/kubernetes-sigs/metrics-server
 ```
 
-安装metrics-server
+### 安装部署metrics-server
 
 ```bash
 #没有安装metrics-server时会提示
