@@ -4045,7 +4045,7 @@ https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner/blob/master/c
 
 
 
-#### *案例: 基于 csi-driver-nfs 项目实现
+#### 案例: 基于 csi-driver-nfs 项目实现
 
 ```bash
 https://github.com/kubernetes-csi/csi-driver-nfs

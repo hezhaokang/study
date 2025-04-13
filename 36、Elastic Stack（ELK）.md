@@ -14,7 +14,9 @@
 
 当今监控天下三分。被划分为基于Metrics（指标）监控、基于 Tracing（调用链）监控、基于Logging（日志） 的监控。
 
-![image-20250316144148510](C:/Users/zhaok/AppData/Roaming/Typora/typora-user-images/image-20250316144148510.png)
+![image-20250316144148510](5day-png/image-20250316144148510.png)
+
+![image-20250407142403849](5day-png/image-20250407142403849.png)
 
 **什么是** **Elastic Stack**
 

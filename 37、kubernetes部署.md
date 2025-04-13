@@ -1906,6 +1906,8 @@ https://github.com/Mirantis/cri-dockerd
 ```
 
 ```bash
+[root@master1 ~]#wget https://github.com/Mirantis/cri-dockerd/releases/download/v0.3.16/cri-dockerd_0.3.16.3-0.ubuntu-jammy_amd64.deb
+
 [root@master1 ~]#ls
 cri-dockerd_0.3.16.3-0.ubuntu-jammy_amd64.deb
 [root@master1 ~]#for i in {102..106};do scp ./cri-dockerd_0.3.16.3-0.ubuntu-jammy_amd64.deb 10.0.0.$i:;done
@@ -1971,6 +1973,20 @@ kubeadm init \
   --upload-certs \                               # 自动上传证书（高可用场景）
   --cri-socket=unix:///run/cri-dockerd.sock      # 指定 CRI 套接字路径（使用 cri-dockerd）
 ```
+
+```
+kubeadm init \
+  --kubernetes-version=v${K8S_RELEASE_VERSION} \
+  --control-plane-endpoint kubeapi.kang.org \
+  --pod-network-cidr 10.244.0.0/16 \
+  --service-cidr 10.96.0.0/12 \
+  --image-repository registry.aliyuncs.com/google_containers \ 
+  --token-ttl=0 \
+  --upload-certs \
+  --cri-socket=unix:///run/cri-dockerd.sock
+```
+
+
 
 ```bash
 K8S_RELEASE_VERSION=1.32.3
@@ -2445,9 +2461,7 @@ apt update
 ```
 
 ```bash
-
-#apt install -y kubeadm kubelet kubectl
-
+apt install -y kubeadm kubelet kubectl
 #work节点上可以不装kubectl
 ```
 
@@ -2475,6 +2489,14 @@ apt update
   --upload-certs
 
 
+kubeadm init \
+  --kubernetes-version=v${K8S_RELEASE_VERSION} \
+  --control-plane-endpoint="10.0.0.20" \
+  --pod-network-cidr=10.244.0.0/16 \
+  --service-cidr=10.96.0.0/12 \
+  --token-ttl=0 \
+  --image-repository registry.aliyuncs.com/google_containers \
+  --upload-certs
 ```
 
 ```
@@ -2638,6 +2660,26 @@ https://kubernetes.io/docs/tasks/debug/debug-cluster/crictl/
 |   **查看容器信息**   | `docker inspect` |  `ctr container info`  |    `crictl inspect`     |
 |   **查看容器日志**   |  `docker logs`   |           无           |      `crictl logs`      |
 | **查看容器资源使用** |  `docker stats`  |           无           |     `crictl stats`      |
+
+
+
+#### 解决提醒问题
+
+```bash
+#执行命令时提醒
+[root@master1 ~]#crictl ps
+WARN[0000] Config "/etc/crictl.yaml" does not exist, trying next: "/usr/bin/crictl.yaml" 
+WARN[0000] runtime connect using default endpoints: [unix:///run/containerd/containerd.sock unix:///run/crio/crio.sock unix:///var/run/cri-dockerd.sock]. As the default settings are now deprecated, you should set the endpoint instead. 
+WARN[0000] Image connect using default endpoints: [unix:///run/containerd/containerd.sock unix:///run/crio/crio.sock unix:///var/run/cri-dockerd.sock]. As the default settings are now deprecated, you should set the endpoint instead. 
+
+#解决
+cat <<EOF > /etc/crictl.yaml
+runtime-endpoint: unix:///run/containerd/containerd.sock
+image-endpoint: unix:///run/containerd/containerd.sock
+timeout: 10
+debug: false
+EOF
+```
 
 
 
@@ -3440,3 +3482,8 @@ https://github.com/flannel-io/flannel#deploying-flannel-manually
 kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
 ```
 
+
+
+
+
+## 集群重置

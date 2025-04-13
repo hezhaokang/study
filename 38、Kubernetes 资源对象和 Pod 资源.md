@@ -3077,6 +3077,8 @@ https://github.com/kubernetes-sigs/metrics-server
 [root@master1 ~]#kubectl top pod 
 error: Metrics API not available
 
+[root@master1 ~]#kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
 #下载yaml文件
 [root@master1 ~]#wget https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 #修改yaml文件

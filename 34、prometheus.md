@@ -143,9 +143,9 @@ prometheus-server 主动拉取数据 （拉）
 
 两个方式各有优劣，其中，Pull模型的优势在于：集中控制：有利于将配置集在 Prometheus Server上完成，包括指标及采取速率等,Prometheus的根本目标在于收集在Target上预先完成聚合的聚合型数据，而非一款由事件驱动的存储系统
 
-![image-20250301153251297](/5day-png/34prometheus构架.png)
+![image-20250301153251297](5day-png/34prometheus构架.png)
 
-![image-20250301153339370](/5day-png/34prometheus构架1.png)
+![image-20250301153339370](5day-png/34prometheus构架1.png)
 
 采集	存储	展示	告警
 
