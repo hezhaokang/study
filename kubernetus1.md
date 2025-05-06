@@ -2016,6 +2016,10 @@ helm install wordpress \
 
 基于“openebs-hostpath”存储类进行部署
 
+```bash
+[root@master1 harbor]#vim harbor-values-openebs.yaml
+```
+
 ```yaml
 #cat harbor-values-openebs.yaml
 expose:
@@ -2208,7 +2212,15 @@ harborAdminPassword: "magedu.com"
 helm install harbor -f harbor-values.yaml harbor/harbor -n harbor --create-namespace
 ```
 
+### 范例：部署 metrics-server
 
+```bash
+helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+
+helm upgrade --install metrics-server metrics-server/metrics-server \
+  -n metrics-server --create-namespace \
+  --set args="{--kubelet-insecure-tls}"
+```
 
 ### 范例：部署 metallb
 
@@ -2225,8 +2237,17 @@ helm install metallb metallb/metallb --namespace metallb-system --create-namespa
 
 3 配置地址池
 创建 IPAddressPool 和 L2Advertisement 资源
-[root@master1 LoadBalancer-MatalLB]#cat metallb-ipaddresspool.yaml 
-i
+[root@master1 metallb]#cat metallb-ipaddresspool.yaml 
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: localip-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - 10.0.0.100-10.0.0.150
+  autoAssign: true
+  avoidBuggyIPs: true
 
 [root@master1 LoadBalancer-MatalLB]#cat metallb-l2advertisement.yaml 
 apiVersion: metallb.io/v1beta1
@@ -2262,6 +2283,19 @@ helm upgrade --install ingress-nginx ingress-nginx \
 ```
 
 ```bash
+#添加promethus监控
+helm upgrade ingress-nginx ingress-nginx \
+  --install \
+  --repo https://kubernetes.github.io/ingress-nginx \
+  --namespace ingress-nginx \
+  --create-namespace \
+  --set controller.metrics.enabled=true \
+  --set-string controller.podAnnotations."prometheus\.io/scrape"="true" \
+  --set-string controller.podAnnotations."prometheus\.io/port"="10254" \
+  --set controller.service.type=LoadBalancer
+```
+
+```bash
 [root@master1 ~]#kubectl get po -n ingress-nginx 
 NAME                                       READY   STATUS    RESTARTS   AGE
 ingress-nginx-controller-b49d9c7b9-xcgmc   1/1     Running   0          28m
@@ -2271,7 +2305,24 @@ ingress-nginx-controller             LoadBalancer   10.106.137.131   10.0.0.101 
 ingress-nginx-controller-admission   ClusterIP      10.96.191.111    <none>        443/TCP                      28m
 ```
 
+### 范例：helm部署OpenEBS
 
+```
+helm repo add openebs https://openebs.github.io/openebs
+```
+
+部署OpenEBS，并禁用了本地的zfs和lvm存储引擎，以及复制引擎Mayastor。
+
+```bash
+helm upgrade openebs --install --namespace openebs openebs/openebs --set engines.replicated.mayastor.enabled=false \
+            --set engines.local.zfs.enabled=false --set engines.local.lvm.enabled=false --create-namespace
+```
+
+> 提示：OpenEBS 4.x系列，目前的Chart并不支持使用“--set nfs-provisioner.enabled=true”选项来启用nfs provisioner，需要该功能时，建议额外使用下面的命令进行手动部署。
+>
+> ```bash
+> kubectl apply -f https://openebs.github.io/charts/nfs-operator.yaml
+> ```
 
 ### 范例：部署minio
 
@@ -2334,6 +2385,104 @@ spec:
       name: https
   type: LoadBalancer
 ```
+
+### 范例：部署ELK
+
+```bash
+#添加仓库
+helm repo add elastic https://helm.elastic.co
+
+vim elasticsearch-values.yaml
+
+# Elasticsearch 集群配置示例
+replicas: 3                      # Elasticsearch 节点数，生产环境建议至少3个节点
+minimumMasterNodes: 2            # 最小主节点数量，避免脑裂问题，通常为 (replicas / 2 + 1)
+
+# 持久化存储配置
+volumeClaimTemplate:
+  accessModes: 
+    - ReadWriteOnce             # 存储访问模式，单节点读写
+  resources:
+    requests:
+      storage: 5Gi             # 持久化存储大小，根据实际数据量调整
+
+# 资源请求和限制
+resources:
+  requests:
+    cpu: "1000m"                # 请求的CPU资源，1核
+    memory: "2Gi"               # 请求的内存资源，2GB
+  limits:
+    cpu: "1000m"                # 允许最大CPU资源，1核
+    memory: "2Gi"               # 允许最大内存资源，2GB
+
+# 节点角色分配
+nodeSelector: {}                # 可用于节点亲和，指定节点标签
+tolerations: []                 # 容忍污点，确保Pod能调度到特定节点
+affinity: {}                   # 调度亲和策略，按需配置
+
+# 安全和认证
+esConfig:                       # Elasticsearch配置文件，可自定义
+  elasticsearch.yml: |
+    xpack.security.enabled: false  # 关闭安全认证（测试环境），生产环境建议开启并配置证书等
+
+# 网络设置
+service:
+  type: ClusterIP                # 服务类型，默认为ClusterIP，也可以设置为LoadBalancer
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+
+# 初始化和存储路径
+persistence:
+  enabled: true                 # 启用持久化存储
+  storageClass: "openebs-hostpath" # 使用的存储类名称
+  size: 5Gi                   # 存储容量，需和volumeClaimTemplate中一致
+
+# StatefulSet 使用 volumeClaimTemplate 创建 PVC
+volumeClaimTemplate:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: "openebs-hostpath"  # 这里也需要写上 storageClassName，确保PVC使用指定存储类
+  resources:
+    requests:
+      storage: 5Gi
+
+# Pod 亲和、调度等高级配置
+podManagementPolicy: "Parallel" # Pod 管理策略，默认Parallel比OrderedReady效率高
+
+# 关闭集群自动快照等实验功能（如不需要）
+# masterService: elasticsearch-master
+
+# 自定义启动参数
+extraEnvs:                     # 额外环境变量，可配置Java堆大小等
+  - name: ES_JAVA_OPTS
+    value: "-Xms1g -Xmx1g"
+
+
+helm install elasticsearch elastic/elasticsearch --namespace logging -f elasticsearch-values.yaml --create-namespace
+
+1. 观察所有集群成员的出现.
+  $ kubectl get pods --namespace=logging -l app=elasticsearch-master -w
+2. 检索 elastic 用户的密码.
+  $ kubectl get secrets --namespace=logging elasticsearch-master-credentials -ojsonpath='{.data.password}' | base64 -d
+3. 使用 Helm 测试来测试集群健康状况.
+  $ helm --namespace=logging test elasticsearch
+
+```
+
+```bash
+
+
+helm install kibana elastic/kibana \
+  --namespace logging \
+  -f kibana-values.yaml \
+  --create-namespace
+```
+
+
+
+
 
 
 
@@ -2401,6 +2550,273 @@ helm install nacos . \
   --set auth.enabled=true
 
 ```
+
+
+
+### 自定义 Chart
+
+#### 固定配置的chart
+
+```
+https://docs.helm.sh/docs/chart_template_guide/getting_started/
+```
+
+```bash
+# 创建chart文件结构
+root@master01:/data#helm create myapp-chart
+Creating myapp-chart
+
+root@master01:/data#tree myapp-chart/
+myapp-chart/
+├── charts
+├── Chart.yaml                        # 必须项，包含了该chart的描述，helm show chart [CHART] 查看到即此文件内容
+├── templates                         # 包括了各种资源清单的模板文件
+│   ├── deployment.yaml
+│   ├── _helpers.tpl
+│   ├── hpa.yaml
+│   ├── ingress.yaml
+│   ├── NOTES.txt
+│   ├── serviceaccount.yaml
+│   ├── service.yaml
+│   └── tests
+│       └── test-connection.yaml
+└── values.yaml                       # 如果templates/目录中包含变量时,可以通过此文件提供变量的默认值
+                                      # 这些值可以在用户执行 helm install 或 helm upgrade 时被覆盖
+                                      # helm show values  [CHART]  查看到即此文件内容
+3 directories, 10 files
+```
+
+```bash
+# 删除不需要的文件
+root@master01:/data# rm -rf myapp-chart/templates/* myapp-chart/values.yaml myapp-chart/charts/
+root@master01:/data# tree
+.
+└── myapp-chart
+    ├── charts
+    ├── Chart.yaml
+    ├── templates
+    └── values.yaml
+
+# 生成相关的资源清单文件
+root@master01:/data# kubectl create deployment myapp --image registry.cn-beijing.aliyuncs.com/wangxiaochun/pod-test:v0.1 --replicas 3 --dry-run=client -o yaml > myapp-chart/templates/myapp-deployment.yaml
+root@master01:/data# kubectl create service nodeport myapp --tcp 80:80 --dry-run=client -o yaml > myapp-chart/templates/myapp-service.yaml
+root@master01:/data# tree myapp-chart/
+myapp-chart/
+├── Chart.yaml
+└── templates
+    ├── myapp-deployment.yaml
+    └── myapp-service.yaml
+
+# 修改清单文件
+root@master01:/data# vim myapp-chart/templates/myapp-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: myapp
+  name: myapp
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - image: registry.cn-beijing.aliyuncs.com/wangxiaochun/pod-test:v0.1
+        name: pod-test
+
+root@master01:/data# vim myapp-chart/templates/myapp-service.yaml 
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: myapp
+  name: myapp
+spec:
+  ports:
+  - name: 80-80
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: myapp
+  type: NodePort
+
+# 修改配置
+root@master01:/data# vim myapp-chart/Chart.yaml
+apiVersion: v2
+name: myapp-chart
+description: A Helm chart for Kubernetes
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+# 检查语法
+root@master01:/data# helm lint myapp-chart/
+==> Linting myapp-chart/
+[INFO] Chart.yaml: icon is recommended
+[INFO] values.yaml: file does not exist
+
+1 chart(s) linted, 0 chart(s) failed
+
+# 部署应用
+root@master01:/data# helm install myapp ./myapp-chart/ --create-namespace --namespace helmdemo
+NAME: myapp
+LAST DEPLOYED: Tue May  6 16:50:12 2025
+NAMESPACE: helmdemo
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+
+root@master01:/data# kubectl get pod -n helmdemo 
+NAME                     READY   STATUS    RESTARTS   AGE
+myapp-6d67457cf5-4s5mg   1/1     Running   0          32s
+myapp-6d67457cf5-6rpc4   1/1     Running   0          32s
+myapp-6d67457cf5-86l8z   1/1     Running   0          32s
+
+# 将目录打包至文件
+root@master01:/data# helm package ./myapp-chart/
+Successfully packaged chart and saved it to: /data/myapp-chart-0.1.0.tgz
+root@master01:/data# ll myapp-chart-0.1.0.tgz 
+-rw-r--r-- 1 root root 788  5月  6 16:51 myapp-chart-0.1.0.tgz
+```
+
+#### 可变配置的 Chart
+
+```bash
+root@master01:/data# helm create myweb-chart
+Creating myweb-chart
+root@master01:/data# tree myweb-chart/
+myweb-chart/
+├── charts
+├── Chart.yaml
+├── templates
+│   ├── deployment.yaml
+│   ├── _helpers.tpl
+│   ├── hpa.yaml
+│   ├── ingress.yaml
+│   ├── NOTES.txt
+│   ├── serviceaccount.yaml
+│   ├── service.yaml
+│   └── tests
+│       └── test-connection.yaml
+└── values.yaml
+
+# 删除多余的文件
+root@master01:/data# rm -rf myweb-chart/templates/*
+root@master01:/data# tree myweb-chart/
+myweb-chart/
+├── charts
+├── Chart.yaml
+├── templates
+└── values.yaml
+
+# 创建资源清单文件
+root@master01:/data# kubectl create deployment myweb --image nginx:1.22.0 --replicas=3 --dry-run=client -o yaml > myweb-chart/templates/myweb-deployment.yaml
+root@master01:/data# kubectl create service nodeport myweb --tcp 80:80  --dry-run=client -o yaml > myweb-chart/templates/myweb-service.yaml
+
+# 修改清单文件为动态模版文件
+root@master01:/data#vim myweb-chart/templates/myweb-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.deployment_name }}
+  #namespace: {{ .Values.namespace }} 
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.pod_label }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.pod_label }}
+    spec:
+      containers:
+      - image: {{ .Values.image }}:{{ .Values.imageTag }}
+        name: {{ .Values.container_name }}
+        ports:
+        - containerPort: {{ .Values.containerport }}
+        
+root@master01:/data#vim myweb-chart/templates/myweb-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.service_name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+  - port: {{ .Values.port }}
+    protocol: TCP
+    targetPort: {{ .Values.targetport }}
+  selector:
+    app: {{ .Values.pod_label }}
+  type: NodePort
+  
+# 编辑values.yaml文件
+root@master01:/data#vim myweb-chart/values.yaml
+#namespace: default
+deployment_name: myweb-deployment
+replicas: 3
+pod_label: myweb-pod-label
+image: registry.cn-beijing.aliyuncs.com/wangxiaochun/pod-test
+imageTag: v0.1
+container_name: myweb-container
+service_name: myweb-service
+port: 80
+targetport: 80
+containerport: 80
+
+# 查看Chart.yaml
+root@master01:/data#grep -v "#" myweb-chart/Chart.yaml
+apiVersion: v2
+name: myweb-chart
+description: A Helm chart for Kubernetes
+
+type: application
+
+version: 0.1.0
+
+appVersion: "1.16.0"
+
+root@master01:/data# tree myweb-chart/
+myweb-chart/
+├── charts
+├── Chart.yaml
+├── templates
+│   ├── myweb-deployment.yaml
+│   └── myweb-service.yaml
+└── values.yaml
+
+#部署
+root@master01:/data# helm install myweb ./myweb-chart/ --create-namespace --namespace helmtest
+NAME: myweb
+LAST DEPLOYED: Tue May  6 17:03:19 2025
+NAMESPACE: helmtest
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+
+root@master01:/data# kubectl get pod -n helmtest 
+NAME                                READY   STATUS    RESTARTS   AGE
+myweb-deployment-5c54699c4d-5ghfj   1/1     Running   0          49s
+myweb-deployment-5c54699c4d-fp87c   1/1     Running   0          49s
+myweb-deployment-5c54699c4d-snxxx   1/1     Running   0          49s
+
+#打包
+root@master01:/data# helm package ./myweb-chart/
+Successfully packaged chart and saved it to: /data/myweb-chart-0.1.0.tgz
+root@master01:/data# ll
+-rw-r--r--  1 root root  953  5月  6 17:04 myweb-chart-0.1.0.tgz
+```
+
+
 
 
 
@@ -2959,11 +3375,11 @@ kind: CertificateSigningRequest
 metadata:
   name: mason
 spec:
-  request: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0KTUlJQ2FUQ0NBVkVDQVFBd0pERU9NQXdHQTFVRUF3d0ZiV0Z6YjI0eEVqQVFCZ05WQkFvTUNXdDFZbVZoWkcxcApiakNDQVNJd0RRWUpLb1pJaHZjTkFRRUJCUUFEZ2dFUEFEQ0NBUW9DZ2dFQkFMak0yek45YnBzandqL05nVHp3CjN4dGY4dFRqSVdQcUNHTW0yT0ZjRzBPNmt2aXhSWjhGNFdjckk3WXg3S3VLazFVdEFBd3RIY2o3YmJwZ1FNRGMKVFVKWktzcG5JbEs0L2VOaUlTTzgwUFhYNVpRM2wxblQvVmx3VUhITTFoWWtFZ1g5eWJoN2g4aXdBSDJod1BoZgpsZmxYaEFRa0N5eEdHd2t1NDAwQllMMEErRjZSaE9FUFZReU5CakFkUkVZdERiM2tYTEdOK251REVvSklIQUFKCjBudmQyRFFMNmoxVGF6MXJJY1M0b0doYTdxQVdhOFV2Vnl2cVBBcXFvcjRUSDdlS0lrOWl4YkhKbzZveXUrUzIKdkRWbjJkNVluYVY4OUtQTzBxMlFSeGMxeHVxdEFwVmdpQlNyWVFWdDUyZUNWWUhNYklKb1dhaDRzUDRJdWRncgpQeGNDQXdFQUFhQUFNQTBHQ1NxR1NJYjNEUUVCQ3dVQUE0SUJBUUJaQUJ0enZLQXp5a2xmak1TbkNLVVpDem5LCjVaWkhMT3FaRVNvWU4wb2daUml4WUNFRlJMLzhYVlBTMW5TZUQ1TkRNcERWTlF6aU1jRzJSTHBobFVoUU5uYU8KWmkySHJCQkxHQTBoTDEycnpFNTBrSW52VUFWVEFKUUE4b3RGZjlDdnpYWkhWODVWcGoxQWFBWTQ2Tk03RFJpZQpjMlp5OWNjMjJjQjZyQy9KVnVQL2t5WkZKbVhpSEcxakJJdmlMS3k0bEl3bU1PZVFyVTVlcUlBZmt4NERXcjFZCmtHblhnYno5allaVFJ3cGNxeUhid1dZRWNNWGlpRGxnSllwc2NaRlpQSHc3RHZmTHM5L3JNbGhiUDZKTDYyUWwKa2NzR0lrbnFGWldUOXk1eFNPczZmRE1Ga2RjVTduRWNsME5hdmJCTHpSL1ZqV24rTmhXN3ZOclZ2WXJrCi0tLS0tRU5EIENFUlRJRklDQVRFIFJFUVVFU1QtLS0tLQo=
-  signerName: kubernetes.io/kube-apiserver-client
+  request: （base64编码后的csr文件）
   expirationSeconds: 864000  # ten days
   usages:
   - client auth
+
 
 		kubectl apply -f certificatesignrequest-mason.yaml
 		kubectl get csr
@@ -2992,9 +3408,2866 @@ mason   10s   kubernetes.io/kube-apiserver-client   kubernetes-admin   10d      
 
 
 
-### config
+### kubeconfig
 
 ```powershell
 使用 kubeadm 部署的集群,具有管理员权限的认证请求文件：/etc/kubernetes/admin.conf
 ```
+
+```powershell
+kubectl config SUBCOMMAND [options]
+  Available Commands:
+  current-context   显示当前上下文
+  delete-cluster    从kubeconfig中删除指定的集群
+  delete-context    从kubeconfig中删除指定的上下文从
+  delete-user       kubeconfig中删除指定的用户
+  get-clusters      显示在kubeconfig中定义的集群
+  get-contexts      描述一个或多个上下文
+  get-users         显示在kubeconfig中定义的用户
+  rename-context    从kubeconfig文件中重命名上下文
+  set               在 kubeconfig 文件中设置单个值
+  set-cluster       在kubeconfig中设置集群条目
+  set-context       在kubeconfig中设置上下文条目
+  set-credentials   在kubeconfig中设置用户条目
+  unset             在 kubeconfig 文件中取消设置单个值
+  use-context       在kubeconfig文件中设置当前上下文
+  view              显示合并的kubeconfig设置或指定的kubeconfig文件
+  
+  
+加载机制优先级
+	1 在命令行中指定 --kubeconfig 选项指定的
+	2 使用环境变量指定的 KUBECONFIG 
+		环境变量可以指定多个路径，中间用冒号‘:’隔开
+		eg:
+			KUBECONFIG="FILE1:FILE2:..."
+	3 默认文件: $HOME/.kube/config
+
+
+#添加集群
+kubectl config set-cluster mykube01 --server=https://10.0.0.20:6443 --certificate-authority=/etc/kubernetes/pki/ca.crt --embed-certs=true
+#添加账号
+kubectl config set-credentials xiaoming --token='7411c7.96e1f6bdda487c76'
+kubectl config set-credentials mason --client-certificate=./mason.crt --client-key=./mason.key --embed-certs=true
+#创建contexts，关联集群和用户
+kubectl config set-context xiaoming@mykube01 --cluster=mykube01 --user=xiaoming
+kubectl config set-context mason@mykube01 --cluster=mykube01 --user=mason
+#切换上下文
+kubectl config use-context xiaoming@mykube01
+#删除集群
+kubectl config delete-cluster mykube02
+
+#环境变量，从左至右，左边优先级最高
+export KUBECONFIG="/root/.kube/config:/root/.kube/kubefile"
+
+```
+
+```powershell
+[root@master1 ~]#kubectl config view 
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: DATA+OMITTED	CA证书
+    server: https://10.0.0.20:6443		集群地址
+  name: kubernetes
+
+表示集群的连接信息：
+	server: API Server 的地址（这里是 10.0.0.20:6443）
+	certificate-authority-data: 集群的 CA 证书，用于验证 API Server 身份（已省略）
+	
+contexts:
+- context:
+    cluster: kubernetes		集群
+    user: kubernetes-admin	用户
+  name: kubernetes-admin@kubernetes
+表示使用哪个集群 + 哪个用户进行连接。
+可以配置多个上下文，快速切换。
+
+current-context: kubernetes-admin@kubernetes
+当前正在使用的上下文。你现在使用的是 kubernetes-admin 用户连接 kubernetes 集群。
+
+kind: Config
+preferences: {}
+users:
+- name: kubernetes-admin	用户名
+  user:
+    client-certificate-data: DATA+OMITTED
+    client-key-data: DATA+OMITTED
+表示客户端使用的身份认证方式，这里是基于证书的：
+	client-certificate-data: 用户的证书（Base64 编码，省略了）
+	client-key-data: 对应私钥
+```
+
+  ![image-20250414165634491](kubernetes/image-20250414165634491.png)
+
+
+
+#### 范例：创建config文件
+
+```bash
+#添加集群
+[root@node1 ~]#kubectl config set-cluster mykube01 --server=https://10.0.0.20:6443 --certificate-authority=/etc/kubernetes/pki/ca.crt --embed-certs=true
+
+set-cluster mykube01		#设置一个名为 mykube01 的集群配置
+--server=https://10.0.0.20:6443		#Kubernetes API Server 的地址
+--certificate-authority=/etc/kubernetes/pki/ca.crt	#CA 根证书，用于校验 API Server 的合法性
+--embed-certs=true		#把证书的内容直接嵌入到配置文件里（base64 编码），而不是只写路径。方便在其他机器上使用这个 kubeconfig
+
+#查看
+[root@node1 ~]#kubectl config view 
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: DATA+OMITTED
+    server: https://10.0.0.20:6443
+  name: mykube01
+contexts: null
+current-context: ""
+kind: Config
+preferences: {}
+users: null
+
+#查看集群定义
+[root@node1 ~]#kubectl config get-clusters 
+NAME
+mykube01
+
+#这个命令执行完会在你的 ~/.kube/config 中添加配置
+[root@node1 ~]#cat .kube/config 
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: 证书
+    server: https://10.0.0.20:6443
+  name: mykube01
+contexts: null
+current-context: ""
+kind: Config
+preferences: {}
+users: null
+```
+
+```bash
+#添加账号
+[root@node1 ~]#kubectl config set-credentials xiaoming --token='7411c7.96e1f6bdda487c76'
+
+#查看token
+[root@master1 ~]#cat /etc/kubernetes/authfile/tokens.csv 
+7411c7.96e1f6bdda487c76,xiaoming,1001,kubeadmin
+06f301.1c5bfd3fff1965cd,xiaohong,2001,kubeusers
+9a326d.dc62a0f2fa288767,xiaolan,2002,"kubeadmin,developers"
+
+#查看
+[root@node1 ~]#kubectl config view 
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: DATA+OMITTED
+    server: https://10.0.0.20:6443
+  name: mykube01
+contexts: null
+current-context: ""
+kind: Config
+preferences: {}
+users:
+- name: xiaoming
+  user:
+    token: REDACTED
+
+#查看user
+[root@node1 ~]#kubectl config get-users 
+NAME
+xiaoming
+```
+
+```bash
+#创建contexts，关联集群和用户
+#创建contexts，关联mykube01和xiaoming
+[root@node1 ~]#kubectl config set-context xiaoming@mykube01 --cluster=mykube01 --user=xiaoming
+
+[root@node1 ~]#kubectl config view 
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: DATA+OMITTED
+    server: https://10.0.0.20:6443
+  name: mykube01
+contexts:
+- context:
+    cluster: mykube01
+    user: xiaoming
+  name: xiaoming@mykube01
+current-context: ""
+kind: Config
+preferences: {}
+users:
+- name: xiaoming
+  user:
+    token: REDACTED
+```
+
+```bash
+[root@node1 ~]#kubectl get pod --context='xiaoming@mykube01'
+Error from server (Forbidden): pods is forbidden: User "xiaoming" cannot list resource "pods" in API group "" in the namespace "default
+```
+
+```bash
+#查看现有上下文
+kubectl config get-contexts
+
+#切换上下文
+kubectl config use-context <上下文名称>
+
+eg:
+[root@node1 ~]#kubectl config get-contexts
+CURRENT   NAME                CLUSTER    AUTHINFO   NAMESPACE
+          xiaoming@mykube01   mykube01   xiaoming   
+[root@node1 ~]#kubectl config use-context xiaoming@mykube01
+
+[root@node1 ~]#kubectl config view 
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: DATA+OMITTED
+    server: https://10.0.0.20:6443
+  name: mykube01
+contexts:
+- context:
+    cluster: mykube01
+    user: xiaoming
+  name: xiaoming@mykube01
+current-context: xiaoming@mykube01
+kind: Config
+preferences: {}
+users:
+- name: xiaoming
+  user:
+    token: REDACTED
+```
+
+```bash
+[root@node1 ~]#kubectl get pod
+```
+
+```bash
+#添加另一个账号
+[root@node1 ~]#cd /etc/kubernetes/pki/user-certs/mason/
+[root@node1 mason]#ls
+mason.crt  mason.csr  mason.key
+[root@node1 mason]#kubectl config set-credentials mason --client-certificate=./mason.crt --client-key=./mason.key --embed-certs=true
+User "mason" set.
+
+[root@node1 mason]#kubectl config get-users 
+NAME
+mason
+xiaoming
+
+[root@node1 mason]#kubectl config view 
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: DATA+OMITTED
+    server: https://10.0.0.20:6443
+  name: mykube01
+contexts:
+- context:
+    cluster: mykube01
+    user: xiaoming
+  name: xiaoming@mykube01
+current-context: xiaoming@mykube01
+kind: Config
+preferences: {}
+users:
+- name: mason
+  user:
+    client-certificate-data: DATA+OMITTED
+    client-key-data: DATA+OMITTED
+- name: xiaoming
+  user:
+    token: REDACTED
+```
+
+```bash
+#关联集群
+[root@node1 mason]#kubectl config set-context mason@mykube01 --cluster=mykube01 --user=mason
+Context "mason@mykube01" created.
+[root@node1 mason]#kubectl config get-contexts 
+CURRENT   NAME                CLUSTER    AUTHINFO   NAMESPACE
+          mason@mykube01      mykube01   mason      
+*         xiaoming@mykube01   mykube01   xiaoming   
+```
+
+```bash
+[root@node1 mason]#kubectl get pod --context=mason@mykube01 
+
+#修改mason为默认值
+[root@node1 mason]#kubectl config use-context mason@mykube01 
+Switched to context "mason@mykube01".
+[root@node1 mason]#kubectl config get-contexts 
+CURRENT   NAME                CLUSTER    AUTHINFO   NAMESPACE
+*         mason@mykube01      mykube01   mason      
+          xiaoming@mykube01   mykube01   xiaoming  
+```
+
+
+
+```bash
+#环境变量
+[root@node1 miller]#kubectl config set-cluster mykube02 --server=https://10.0.0.20:6443 --certificate-authority=/etc/kubernetes/pki/ca.crt --embed-certs=true --kubeconfig=/root/.kube/kubefile
+[root@node1 miller]#export KUBECONFIG=/root/.kube/kubefile
+[root@node1 miller]#kubectl config view 
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: DATA+OMITTED
+    server: https://10.0.0.20:6443
+  name: mykube02
+contexts: null
+current-context: ""
+kind: Config
+preferences: {}
+users: null
+
+```
+
+
+
+### RBAC鉴权
+
+```powershell
+API Server中的鉴权模块
+	Node: 专用的鉴权模块，它基于kubelet将要运行的POd向kubelet进行授权
+	ABAC: 通过将属性（包括资源属性、用户属性、对象和环境属性等）组合在一起的策略，将访问权限授予用户
+	RBAC: 基于企业个人用户的角色来管理对计算机或网络资源的访问的鉴权方法；
+	Webhook: 用于支持同Kubernetes外部的授权机制进行集成
+	
+	RBAC：
+		Role-based access control
+		角色
+		
+		陈述句
+			主:Subject
+			谓:动作
+			宾:Object
+		权限
+			给Object施加的动作
+			
+		Role:
+			能过对那些Object施加那些动作
+			
+		Subject ——> Bonding ——> Role
+		从而Subject就拥有了这个Role的权限
+		
+	API:HTTPS协议
+		Method: GET/POST/HEAD/PUT/DELETE/OPTIONS/...
+		Object: URL PATH 端点
+			/api/v1/namespace/default/pods/mypod
+			
+	ABAC:RBAC的超集
+		Attribution 
+			管控条件扩展到了请求报文的任何属性，而不仅仅是 Method 和 URL
+		策略编程：
+			OPA: Open Policy agent (开源的策略代理)
+ 
+RBAC:
+	Subject:
+		UserAccount
+		ServiceAccount
+		
+	Action:
+		HTTP Method
+			读操作：get,watch,list
+			写操作：create,delete,update/edit/replace,deldtecollection
+			
+	Object:
+		各类型的资源对象：读写
+			每一个资源对象都有一个 URL，并不是每一个 URL 都是资源对象
+			名称空间级别
+			集群级别
+		非资源型URL：读
+		
+	为实现RBAC机制：
+		提供四个资源类型
+			ROle: 名称空间级别资源类型进行许可授权
+			ClusterRole: 名称空间和集群级别资源类型进行许可授权
+			RoleBinding: Subject ——> RoleBinding ——> Role
+						 Subject ——> RoleBinding ——> ClusterRole
+						 	ClusterRole 会被降级使用：
+                            	集群级别的不会生效
+                            	名称空间级别的只会在 RoleBinding 所在的一个名称空间级
+			ClusterRoleBing: Subject ——> ClusterRoleBinding ——> ClusterRole
+			
+			RoleBinding 可以 Binding Role和ClusterRole
+			ClusterRoleBing 不可以 Binding Role 只能 Binding ClusterRole
+			
+[root@master1 ~]#kubectl get clusterrolebindings.rbac.authorization.k8s.io  kubeadm:cluster-admins -o yaml 
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: "2025-04-12T09:48:22Z"
+  name: kubeadm:cluster-admins
+  resourceVersion: "238"
+  uid: 437a5486-b7b4-416f-a056-2a0d54e3e300
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: kubeadm:cluster-admins
+	
+kubernetes-admin 用户 ，所属的组为 kubeadm:cluster-admins
+	所以kubernetes-admin就有了该集群的管理权限
+	
+可用的写权限
+	verbs:
+	- create
+	- delete
+	- deletecollection
+	- update
+	- patch
+```
+
+| 默认 ClusterRole  |       绑定的 ClusterRoleBinding        |                       描述（核心权限）                       |
+| :---------------: | :------------------------------------: | :----------------------------------------------------------: |
+| **cluster-admin** |          `system:masters` 组           | **最高权限**： - 通过 `ClusterRoleBinding` 授权时：可操作集群及所有命名空间的任何资源。 - 通过 `RoleBinding` 授权时：可操作绑定命名空间的所有资源（包括 `Namespace` 自身）。 |
+|     **admin**     | 无默认绑定（需手动关联 `RoleBinding`） | **命名空间管理员权限**： - 读写命名空间内大多数资源（如 Pod、Deployment）。 - 可创建子 `Role` 和 `RoleBinding`。 - **限制**：不能操作 `ResourceQuota` 和 `Namespace` 本身。 |
+|     **edit**      |               无默认绑定               | **编辑权限**： - 读写命名空间内大多数对象（包括 `Secret`）。 - **限制**：不可查看或修改 `Role` 和 `RoleBinding`。 |
+|     **view**      |               无默认绑定               | **只读权限**： - 可查看命名空间内大多数对象。 - **限制**：不可访问 `Role`、`RoleBinding` 和 `Secret`。 |
+
+1. **ClusterRole 与 RoleBinding 的关系**
+
+   - `ClusterRole` 是集群级别的角色模板，通过 `ClusterRoleBinding` 或 `RoleBinding` 绑定到用户/组。
+   - 区别：
+     - `ClusterRoleBinding`：权限作用于整个集群（如 `cluster-admin`）。
+     - `RoleBinding`：权限仅作用于单个命名空间（如 `admin`、`edit`、`view`）。
+
+2. **权限递进逻辑**
+
+   ```
+   view（只读） → edit（读写，不含RBAC） → admin（读写+RBAC管理） → cluster-admin（全集群控制）
+   ```
+
+3. **实际应用场景**
+
+   - **`cluster-admin`**：集群运维人员（需谨慎分配）。
+   - **`admin`**：命名空间负责人（如开发团队Leader）。
+   - **`edit`**：普通开发者（需修改资源但无需管理权限）。
+   - **`view`**：监控或审计人员（仅需查看资源状态）。
+
+```bash
+#默认开启的鉴权
+[root@master1 ~]#cat /etc/kubernetes/manifests/kube-apiserver.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+    kubeadm.kubernetes.io/kube-apiserver.advertise-address.endpoint: 10.0.0.20:6443
+  creationTimestamp: null
+  labels:
+    component: kube-apiserver
+    tier: control-plane
+  name: kube-apiserver
+  namespace: kube-system
+spec:
+  containers:
+  - command:
+    - kube-apiserver
+    - --advertise-address=10.0.0.20
+    - --allow-privileged=true
+    - --authorization-mode=Node,RBAC
+...
+```
+
+
+
+#### 范例:创建用户 binding
+
+```bash
+#创建relo
+[root@master1 ~]#kubectl create role readers --verb=get,list,watch --resource=pods,services,deployments,statefulsets -n default --dry-run=client -o yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  creationTimestamp: null
+  name: readers
+  namespace: default
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - statefulsets
+  verbs:
+  - get
+  - list
+  - watch
+
+[root@master1 ~]#kubectl create role readers --verb=get,list,watch --resource=pods,services,deployments,statefulsets -n default
+
+[root@master1 ~]#kubectl get role
+NAME      CREATED AT
+readers   2025-04-15T12:36:17Z
+
+```
+
+```bash
+#使用relobinding,绑定relo和user
+[root@master1 ~]#kubectl create rolebinding xiaoming-as-readers --role=readers --user=xiaoming -n default --dry-run=client -o yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  creationTimestamp: null
+  name: xiaoming-as-readers
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: readers
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: xiaoming
+
+[root@master1 ~]#kubectl create rolebinding xiaoming-as-readers --role=readers --user=xiaoming -n default
+
+[root@node1 ~]#kubectl get pods --context='xiaoming@mykube01'
+No resources found in default namespace.
+
+```
+
+```bash
+#创建ClusterRelo
+[root@node1 ~]#kubectl create clusterrole cluster-readers --verb=get,list,watch --resource=persistentvolumes,storageclasses,daemonsets,ingresses --dry-run=client -o yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: cluster-readers
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - storageclasses
+  verbs:
+  - get
+  - list
+  - watch
+
+[root@master1 ~]#kubectl create clusterrole cluster-readers --verb=get,list,watch --resource=persistentvolumes,storageclasses,daemonsets,ingresses
+
+[root@master1 ~]#kubectl get clusterrole cluster-readers 
+NAME              CREATED AT
+cluster-readers   2025-04-15T12:56:28Z
+```
+
+```bash
+#使用relobinding,绑定ClusterRelo和user
+[root@master1 ~]#kubectl create clusterrolebinding mason-as-cluster-readers --clusterrole=cluster-readers --user=mason --dry-run=client -o yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  name: mason-as-cluster-readers
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-readers
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: mason
+
+[root@master1 ~]#kubectl create clusterrolebinding mason-as-cluster-readers --clusterrole=cluster-readers --user=mason
+```
+
+```bash
+#使用relobinding,绑定ClusterRelo和user
+[root@master1 ~]#kubectl create rolebinding jerry-as-cluster-readers --clusterrole=cluster-readers --user=xiaohong
+
+[root@node1 ~]#kubectl get ingress --context="xiaohong@mykube02"
+No resources found in default namespace.
+
+```
+
+
+
+范例：
+
+```bash
+#创建一个用户，授予默认名称空间下的所有权限
+[root@master1 ~]#kubectl create rolebinding mason-as-default-ns-admin --clusterrole=admin --user=mason
+rolebinding.rbac.authorization.k8s.io/mason-as-default-ns-admin created
+
+```
+
+### ServiceAccount
+
+```powershell
+ServiceAccount：API上的标准资源类型，namespace 级的
+	权限并不极限与名称空间，权限局限于使用的是 clusterrolebinding 还是 rolebinding ，binding 到那个 role 或 clusterrole 上
+	认证到API Server
+		serviceAccount Token:
+			API Server 就是 Token 的签发者 
+			Issuer:API Server
+	获得授权：RBAC
+		额外的权限，必须有RBAC进行定义
+每一个名称空间都会自动生成一个 default 的 ServiceAccouint
+
+ServiceAccount Token的不同实现方式
+Kubernetes v1.20-
+	系统自动生成专用的Secret对象，并基于secret卷插件关联至相关的Pod;
+	Secret中会自动附带Token，且永久有效;
+Kubernetes v1.21-y1.23:
+	系统自动生成专用的Secret对象，并通过projected卷插件关联至相关的Pod;
+	Pod不会使用Secret上的Token，而是由Kubelet向TokenRequest API请求生成，默认有效期为一年，且每小时更新一次;
+Kubernetes v1.24+:
+	系统不再自动生成专用的Secret对象
+	由Kubelet负责向TokenRequestAPI请求生成Token
+	默认卷路径
+		/var/run/secrets/kubernetes.io/serviceaccount
+		
+如果使用了ServiceAccount可以将连接harbor仓库的Secrets定义到ServiceAccount
+kubectl explain sa.imagePullSecrets
+如果harbor仓库密码，只需要改ServiceAccount，所有使用ServiceAccount定义的pod都修改
+```
+
+#### 范例：创建ServiceAccount
+
+```bash
+[root@master1 ~]#kubectl create namespace jenkins
+[root@master1 ~]#kubectl create serviceaccount jenkins-master -n jenkins --dry-run=client -o yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  creationTimestamp: null
+  name: jenkins-master
+  namespace: jenkins
+[root@master1 ~]#kubectl create serviceaccount jenkins-master -n jenkins
+[root@master1 ~]#kubectl get sa -n jenkins 
+NAME             SECRETS   AGE
+default          0         106s
+jenkins-master   0         46s
+
+#授权jenkins名称空间下的管理员权限
+[root@master1 ~]#kubectl create rolebinding jenkins-master-as-ns-admin --clusterrole=admin --serviceaccount=jenkins:jenkins-master -n jenkins
+								   namespace:serviceAccount
+rolebinding.rbac.authorization.k8s.io/jenkins-master-as-ns-admin created
+
+
+[root@master1 ~]#vim myapp.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mypod
+  namespace: jenkins
+spec:
+  containers:
+  - name: mypod
+    image: ikubernete/demoapp:v1.0
+  serviceAccountName: jenkins-master
+
+
+
+#kubectl exec -it -n jenkins mypod -- sh
+#cd /run/secrets/kubernetes.io/serviceaccount/
+
+#curl -k -H "Authorization: Bearer $(cat token)" https://kubernetes.default.svc.cluster.local/api/v1/namespaces/jenkins/pods/
+```
+
+
+
+### 范例：安装部署kuboard
+
+```bash
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuboard
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kuboard-v3-config
+  namespace: kuboard
+data:
+  # 关于如下参数的解释，请参考文档 https://kuboard.cn/install/v3/install-built-in.html
+  # [common]
+  KUBOARD_ENDPOINT: 'http://kuboard.magedu.com'
+  KUBOARD_AGENT_SERVER_UDP_PORT: '30081'
+  KUBOARD_AGENT_SERVER_TCP_PORT: '30081'
+  KUBOARD_SERVER_LOGRUS_LEVEL: info  # error / debug / trace
+  # KUBOARD_AGENT_KEY 是 Agent 与 Kuboard 通信时的密钥，请修改为一个任意的包含字母、数字的32位字符串，此密钥变更后，需要删除 Kuboard Agent 重新导入。
+  KUBOARD_AGENT_KEY: 32b7d6572c6255211b4eec9009e4a816  
+
+  # 关于如下参数的解释，请参考文档 https://kuboard.cn/install/v3/install-gitlab.html
+  # [gitlab login]
+  # KUBOARD_LOGIN_TYPE: "gitlab"
+  # KUBOARD_ROOT_USER: "your-user-name-in-gitlab"
+  # GITLAB_BASE_URL: "http://gitlab.mycompany.com"
+  # GITLAB_APPLICATION_ID: "7c10882aa46810a0402d17c66103894ac5e43d6130b81c17f7f2d8ae182040b5"
+  # GITLAB_CLIENT_SECRET: "77c149bd3a4b6870bffa1a1afaf37cba28a1817f4cf518699065f5a8fe958889"
+  
+  # 关于如下参数的解释，请参考文档 https://kuboard.cn/install/v3/install-github.html
+  # [github login]
+  # KUBOARD_LOGIN_TYPE: "github"
+  # KUBOARD_ROOT_USER: "your-user-name-in-github"
+  # GITHUB_CLIENT_ID: "17577d45e4de7dad88e0"
+  # GITHUB_CLIENT_SECRET: "ff738553a8c7e9ad39569c8d02c1d85ec19115a7"
+
+  # 关于如下参数的解释，请参考文档 https://kuboard.cn/install/v3/install-ldap.html
+  # [ldap login]
+  # KUBOARD_LOGIN_TYPE: "ldap"
+  # KUBOARD_ROOT_USER: "your-user-name-in-ldap"
+  # LDAP_HOST: "ldap-ip-address:389"
+  # LDAP_BIND_DN: "cn=admin,dc=example,dc=org"
+  # LDAP_BIND_PASSWORD: "admin"
+  # LDAP_BASE_DN: "dc=example,dc=org"
+  # LDAP_FILTER: "(objectClass=posixAccount)"
+  # LDAP_ID_ATTRIBUTE: "uid"
+  # LDAP_USER_NAME_ATTRIBUTE: "uid"
+  # LDAP_EMAIL_ATTRIBUTE: "mail"
+  # LDAP_DISPLAY_NAME_ATTRIBUTE: "cn"
+  # LDAP_GROUP_SEARCH_BASE_DN: "dc=example,dc=org"
+  # LDAP_GROUP_SEARCH_FILTER: "(objectClass=posixGroup)"
+  # LDAP_USER_MACHER_USER_ATTRIBUTE: "gidNumber"
+  # LDAP_USER_MACHER_GROUP_ATTRIBUTE: "gidNumber"
+  # LDAP_GROUP_NAME_ATTRIBUTE: "cn"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kuboard-etcd
+  namespace: kuboard
+  labels:
+    app: kuboard-etcd
+spec:
+  serviceName: kuboard-etcd
+  replicas: 3
+  selector:
+    matchLabels:
+      app: kuboard-etcd
+  template:
+    metadata:
+      name: kuboard-etcd
+      labels:
+        app: kuboard-etcd
+    spec:
+      containers:
+      - name: kuboard-etcd
+        image: eipwork/etcd:v3.4.14
+        ports:
+        - containerPort: 2379
+          name: client
+        - containerPort: 2380
+          name: peer
+        env:
+        - name: KUBOARD_ETCD_ENDPOINTS
+          value: >-
+            kuboard-etcd-0.kuboard-etcd:2379,kuboard-etcd-1.kuboard-etcd:2379,kuboard-etcd-2.kuboard-etcd:2379
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        command:
+          - /bin/sh
+          - -c
+          - |
+            PEERS="kuboard-etcd-0=http://kuboard-etcd-0.kuboard-etcd:2380,kuboard-etcd-1=http://kuboard-etcd-1.kuboard-etcd:2380,kuboard-etcd-2=http://kuboard-etcd-2.kuboard-etcd:2380"
+            exec etcd --name ${HOSTNAME} \
+              --listen-peer-urls http://0.0.0.0:2380 \
+              --listen-client-urls http://0.0.0.0:2379 \
+              --advertise-client-urls http://${HOSTNAME}.kuboard-etcd:2379 \
+              --initial-advertise-peer-urls http://${HOSTNAME}:2380 \
+              --initial-cluster-token kuboard-etcd-cluster-1 \
+              --initial-cluster ${PEERS} \
+              --initial-cluster-state new \
+              --data-dir /data/kuboard.etcd
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      # 请填写一个有效的 StorageClass name
+      storageClassName: openebs-rwx
+      accessModes: [ "ReadWriteMany" ]
+      resources:
+        requests:
+          storage: 5Gi
+
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kuboard-data-pvc
+  namespace: kuboard
+spec:
+  storageClassName: openebs-hostpath
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kuboard-etcd
+  namespace: kuboard
+spec:
+  type: ClusterIP
+  ports:
+  - port: 2379
+    name: client
+  - port: 2380
+    name: peer
+  selector:
+    app: kuboard-etcd
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: '9'
+    k8s.kuboard.cn/ingress: 'false'
+    k8s.kuboard.cn/service: NodePort
+    k8s.kuboard.cn/workload: kuboard-v3
+  labels:
+    k8s.kuboard.cn/name: kuboard-v3
+  name: kuboard-v3
+  namespace: kuboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      k8s.kuboard.cn/name: kuboard-v3
+  template:
+    metadata:
+      labels:
+        k8s.kuboard.cn/name: kuboard-v3
+    spec:
+      containers:
+        - env:
+            - name: KUBOARD_ETCD_ENDPOINTS
+              value: >-
+                kuboard-etcd-0.kuboard-etcd:2379,kuboard-etcd-1.kuboard-etcd:2379,kuboard-etcd-2.kuboard-etcd:2379
+          envFrom:
+            - configMapRef:
+                name: kuboard-v3-config
+          image: 'eipwork/kuboard:v3'
+          imagePullPolicy: Always
+          name: kuboard
+          volumeMounts:
+            - mountPath: "/data"
+              name: kuboard-data
+      volumes:
+      - name: kuboard-data
+        persistentVolumeClaim:
+          claimName: kuboard-data-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    k8s.kuboard.cn/workload: kuboard-v3
+  labels:
+    k8s.kuboard.cn/name: kuboard-v3
+  name: kuboard-v3
+  namespace: kuboard
+spec:
+  ports:
+    - name: webui
+      nodePort: 30080
+      port: 80
+      protocol: TCP
+      targetPort: 80
+    - name: agentservertcp
+      nodePort: 30081
+      port: 10081
+      protocol: TCP
+      targetPort: 10081
+    - name: agentserverudp
+      nodePort: 30081
+      port: 10081
+      protocol: UDP
+      targetPort: 10081
+  selector:
+    k8s.kuboard.cn/name: kuboard-v3
+  sessionAffinity: None
+  type: NodePort
+```
+
+**ingress**
+
+```bash
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kuboard-v3
+  namespace: kuboard
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: kuboard.kang.com
+    http:
+      paths:
+      - path: /
+        backend:
+          service:
+            name: kuboard-v3
+            port:
+              number: 80
+        pathType: Prefix
+```
+
+```powershell
+初始化账号密码：admin/Kuboard123
+
+添加集群
+	Token
+	KubeConfig
+	Kuboard Agent
+```
+
+#### Token获取方法
+
+在master上执行下面命令
+
+```
+cat << EOF > kuboard-create-token.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuboard
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kuboard-admin
+  namespace: kuboard
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kuboard-admin-crb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: kuboard-admin
+  namespace: kuboard
+
+---
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/service-account-token
+metadata:
+  annotations:
+    kubernetes.io/service-account.name: kuboard-admin
+  name: kuboard-admin-token
+  namespace: kuboard
+EOF
+
+kubectl apply -f kuboard-create-token.yaml 
+echo -e "\033[1;34m将下面这一行红色输出结果填入到 kuboard 界面的 Token 字段：\033[0m"
+echo -e "\033[31m$(kubectl -n kuboard get secret $(kubectl -n kuboard get secret kuboard-admin-token | grep kuboard-admin-token | awk '{print $1}') -o go-template='{{.data.token}}' | base64 -d)\033[0m"
+
+```
+
+#### KubeConfig获取方法
+
+```bash
+[root@master1 Kuboard]#cat ~/.kube/config 
+[root@master1 Kuboard]#kubectl config view --raw
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURCVENDQWUyZ0F3SUJBZ0lJT2UwcFNMUUFwN1F3RFFZSktvWklodmNOQVFFTEJRQXdGVEVUTUJFR0ExVUUKQXhNS2EzVmlaWEp1WlhSbGN6QWVGdzB5TlRBME1USXdPVFF6TVRSYUZ3MHpOVEEwTVRBd09UUTRNVFJhTUJVeApFekFSQmdOVkJBTVRDbXQxWW1WeWJtVjBaWE13Z2dFaU1BMEdDU3FHU0liM0RRRUJBUVVBQTRJQkR3QXdnZ0VLCkFvSUJBUUNpTVc0NDlydk5zcXhUdmU4c1poRU5CLzN4M2JwSEVjeTRtT3hOQW9YckFFZWQ0OGRuaFFubjdhcU8KL0RRQnYwa0xNK3JRM243RE9meE1sckVyQmVOaWNLY1NNUUNPT2R5dXUrQ1hpbEcrRXRLeC8yMkIyTkU3emtPWgpRNUt5cENPM0ViUGxkdndhMFJ5Mmk3SVlyZWlkRVUxWHRaRUJVK3ZsTHh0RTU5SEpoUjA0TWhkMjRRYU5qblM4CjlmRDZhcTduOFVrRkZIREZKK3FNZmRmV0JhMkdUWmlVSUhhZ0hGOTU0andHUUhORHBFY0VUOXZjNTFucDVEbWsKZmYvbU1mZUorS1ZUcFpFOW5RcUhUMXExdVFJQTZkZlhtK2t4QjRHdjl1MFA4L2FBcUVXQXFlQXQvNWZTVzc3dwpiSy9SSU40Kzh2MXdpNFJsNjl4Y1ArU09ZTnQzQWdNQkFBR2pXVEJYTUE0R0ExVWREd0VCL3dRRUF3SUNwREFQCkJnTlZIUk1CQWY4RUJUQURBUUgvTUIwR0ExVWREZ1FXQkJRTUJLajdCR01DZDlYelRMMnp2UHNvNjc3YlpEQVYKQmdOVkhSRUVEakFNZ2dwcmRXSmxjbTVsZEdWek1BMEdDU3FHU0liM0RRRUJDd1VBQTRJQkFRQUlvdXhnWXF5NwpBT0pYNG9BWm15b1V3VVRUMUZickxVZEVNZ0Y4ZnVBazdXOVB1TUJQeGZTS2hqd3RRanRTdStnZGNyeXliYnh5CkF1eGNzQjdtWCszMVBFYlUwL0VnRGU5K1pId21BQmU4dWNYMlZxMS9KaDFTL2FBQlBwMFN2Q2lUUTU2MnZsaVoKNnVldjNUM3lWMURxZ1dvbHp3blpZYkV3cGU0T0ZGK0gxL2NNcm9uTU1sekxMaENBczdOUWF0WTZVdnZ1SnJ2KwpvVGtXS2dCTFZiUHRvWnpRZXFBSjJ5eTRtZVhVNjl0eHM1aWYvR2U5YThuQTdTVi9LL1UvTnBqUjFod3pvUHVjCnNoV0xNc2JJSk5DcmRYb09RMk1iTEtYN0RQcnZuenpsWUZPLzdkZnhEQ1lYa1pQNDVMMVdFZDhpRU80azI3V28KVzJZNW1OSExoZUpFCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+    server: https://10.0.0.20:6443
+  name: kubernetes
+contexts:
+- context:
+    cluster: kubernetes
+    user: kubernetes-admin
+  name: kubernetes-admin@kubernetes
+current-context: kubernetes-admin@kubernetes
+kind: Config
+preferences: {}
+users:
+- name: kubernetes-admin
+  user:
+    client-certificate-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURLVENDQWhHZ0F3SUJBZ0lJWjM4aUFPWVBFVkV3RFFZSktvWklodmNOQVFFTEJRQXdGVEVUTUJFR0ExVUUKQXhNS2EzVmlaWEp1WlhSbGN6QWVGdzB5TlRBME1USXdPVFF6TVRSYUZ3MHlOakEwTVRJd09UUTRNVFJhTUR3eApIekFkQmdOVkJBb1RGbXQxWW1WaFpHMDZZMngxYzNSbGNpMWhaRzFwYm5NeEdUQVhCZ05WQkFNVEVHdDFZbVZ5CmJtVjBaWE10WVdSdGFXNHdnZ0VpTUEwR0NTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFEYWZNTmIKeXBKeHAwRG5nSTN1cmVOMERSbEo2c00zSGxNdU14RkZPT1dHT2Ztc0lWNXZlOUI5MGF0MEZoYmFOcEJhY1ZKOApxWnB4VFJzR0NQQ3ZTeFdWVll0L0U3Ukdhc0t1RmhURm9UcjZ0TUFNdkpvdmtXa1I0QXZ3amJhN0Y1a1ozMVBBCkZLYlhOR05Fck01VkNFditURExjeGpSTmliVWVJV2tzdHRObjNySVlldUZKL1dXWnI2bUtGQm00eEJ1Wk1FMjEKL3VabjZkNUo0SzNMd05tMEpDeElDeHRQSUFuWEZ1RGJKTWwyQ05qb3V4SWVBMkorTXJGbXVHT0lyREdLWmZZcwpiZjV0V0NCL25zdnpjU1orTVBQdUExVkRCaW5CbTlYMFU0RXBReS9PckUzTjBpcWRCNGhGU0NEbnZicWtLS1psCkxJekIzTHlseGhhczR1V0RBZ01CQUFHalZqQlVNQTRHQTFVZER3RUIvd1FFQXdJRm9EQVRCZ05WSFNVRUREQUsKQmdnckJnRUZCUWNEQWpBTUJnTlZIUk1CQWY4RUFqQUFNQjhHQTFVZEl3UVlNQmFBRkF3RXFQc0VZd0ozMWZOTQp2Yk84K3lqcnZ0dGtNQTBHQ1NxR1NJYjNEUUVCQ3dVQUE0SUJBUUJFdlU2c3RCd0huZGV4QXpuN01jRWQzZ29DCnRaQW9WaGFUN0w3a0g2RTg3ZnJmUmV3N3Zsd05pajFTZSs3Nkk1UGZ1NjJXenBxcElyeFZrMnZSMWRScVhBcWgKMVlpMEQ4MGZMNHBzTWdWWGYwWnRWcmdjRjJkOXZrNDRKZUE4a2dTTEFReGhia2hONHFMSlV0d09rd1gyaXM5cAplRHg0UnVPZHlxL1pqSmFLbm80Nm8rYVRBVzFWNjFUa0k1VXBFb2tEVjkvcStGNm5zZVNwSmhjTy9uWlZmOVRkClRNRlhHbFRndC9kRTZwVWMrQU5lWkhzbmV0Y2h0UXFVRU8rMkxwd29BdDF3aUlzUmtJQnNqS2p1WUhnWDZnVk8KL1hFbkRLZ2hEVGhSMkphZkxKdmozL2p6dWhsRzllVG1veWR3RktjSGFGWE1WVERSSkZkYXV5dkZNaEhQCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+    client-key-data: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcEFJQkFBS0NBUUVBMm56RFc4cVNjYWRBNTRDTjdxM2pkQTBaU2VyRE54NVRMak1SUlRqbGhqbjVyQ0ZlCmIzdlFmZEdyZEJZVzJqYVFXbkZTZkttYWNVMGJCZ2p3cjBzVmxWV0xmeE8wUm1yQ3JoWVV4YUU2K3JUQURMeWEKTDVGcEVlQUw4STIydXhlWkdkOVR3QlNtMXpSalJLek9WUWhML2t3eTNNWTBUWW0xSGlGcExMYlRaOTZ5R0hyaApTZjFsbWErcGloUVp1TVFibVRCTnRmN21aK25lU2VDdHk4RFp0Q1FzU0FzYlR5QUoxeGJnMnlUSmRnalk2THNTCkhnTmlmakt4WnJoamlLd3hpbVgyTEczK2JWZ2dmNTdMODNFbWZqRHo3Z05WUXdZcHdadlY5Rk9CS1VNdnpxeE4KemRJcW5RZUlSVWdnNTcyNnBDaW1aU3lNd2R5OHBjWVdyT0xsZ3dJREFRQUJBb0lCQVFDb3FlZWwxSnQ0WVVVWgpjWVFmM056Wm1jTUw3TThHbmNKWXg5TnRQSjd6SDQ0OTh3U1R5MkVIdi9RN2lWSGE0b1JOVFc0QURtM0xTVnF6CkxmT2ZYcmNxc1A4ZStuY1FaUm9raWFjL2FWZStjZ3BQeXNpOEwrU01pQWl2aXJhbGQzSVpKdTNnT2hFUjBMOVIKSkpXanp1UGJTN2QzOXdvcFVVVWdIV3F6dWU4NUhxT1RwaStWKytqSUJSWlZ6V3Z5QlozZ0t0ZWNqNXdSMkJsbQpOa3dYZ3c0cWs3OS9nY29lUlpiZnhsNWdhUWtSdllFcnZlb0twVE9Da05obDB3NzU4Q2F1d1R2bGE5ZHdzWGFGCjZSYm1sSXhrZFhWcFROeFJQN0N5K25NZUdEV2hsM21lQ25KOWdUQnI2amZBSk5Fcy92UzYvLzdxRkhpSm1FWXQKV2xzZjJ5Z0JBb0dCQVBlK0Z3eUw5M2x4S1kvdU51akxzMk8wbkowRFFnbmNGUkZDN2xFWUllU3h2U0lpaGFrQwpxUGQ3dmhmMiszNmdSK2FKNEhyQkpPdFNTb2J2YXFYY3RRNURYdFpIWHRUUTQ1ZnhNcDhxUFZTNDBiMWxkMnVSCjJPR25ENVRiK01xTG9FNGlEOUtLRUlROE1yV1ZXY1FSWlRBQkgrOXhaZWFDUnYyb1NUOStvYklqQW9HQkFPSEYKRERiakM1aVdFMDRaQXVrSS9UVUhxNGpUNVRlemorMUNJWTBMOUVMOHVic3hWY3JldzQzZ2Rob2thRHQ2anRFaApLbmlOMnNBb3p1NXdtMXZOK1QxYVFhL1BlLzJWN3VrYklxMlk1RGdrUDlTOC8zOVJnQzBoU3M1OTBwa3RXMzl3CnJlS3hjTWVyQk9WQmhHQ2lJQVdSSGg2SUtUOUdkbXBHckpDY2tzVWhBb0dCQU5NeUZMb1ljLzd1VG0wcHVWdVoKazdNUzNGUXAyOWxGNmh2T0FCWFh5Y1VKRkdBT0ovMmRpK2QyY09aREljQ2Y2TXVLakhoNVFQenZLU09BNUZ6RApHd0l1d3FGUE5IT2VJL2Q2b2huM3kxTDNQNjRDMnR3eitEemR5eld1bEpndWtaa3FCbTBJVCs0NjEwdmZKeWd6CllCeWRTTms1eFpITlM3R2dEZGw0SFdZYkFvR0FDbUx0VCswY0VIWC9CMTNCTTRWVldNWTBqd1BvaktwM0dad3MKUFBmcTBkWWNtVThJdWwrTE1aQzgvakRrbHEvcHVCZEZnK3hLdndKaG1yaVZmU0M1c2FmZ1U3MUE0QWF3eWdxVQppdFg0MGRoaEUyRnFnNm4xTXA1UWViVnlKZGZmV0xxUFZWbUNiYjBoYVlhZEYzRDk5aU9aOWgrZmZpaTRzK1R5CmRXaXVtK0VDZ1lBZ2QvZW9KMkFKWi9yQ1drc2NNMmxWR1VyOTh1bHJrR1JFMWZncHRCTGRDeVloalJvdThiTjAKZWlmSEhLY3ZHU1ZBMTZqbjRzWXcvRGN5b1I0V0tHaCtlazVxcXlUT3JrazJaaEYySHBSRXE4c08vcHlQSEp6NApwRDJiRWdwWVRWK3BYLzRtU1FUZnRUTHpTLy9sTVRrWVNzL0FHTEhGUk9DWHhCNFdxYTVKOWc9PQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
+```
+
+
+
+
+
+## Kubernetes指标系统
+
+### Kubernetes指标流水线 
+
+```powershell
+指标系统
+	kubectl top pod
+	kubectl top node
+	
+	dashboard|kuboard
+		
+		node: cpu、ram用量信息
+		pod: cpu、ram
+		
+	声明式API
+		kubectl get ...
+		
+		资源群组
+			metrics.k8s.io
+		
+		Metrics Server
+		
+		promethus自动发现机制：
+			kubernetes role
+				pod
+				Service
+				Ingress
+				Node
+				Endpoints
+			
+		注解设置：
+			promethus.io/scrape="true"
+			promethus.io/port="PORT"
+			promethus.io/metrhics="/metrics"
+		
+	Promethus Adapater(Promethus 适配器)：可以把promethus格式指标转化为kubernetes格式的指标
+    
+    核心指标流水线
+    	client ——> API Service ——> Metrics Service ——> Kubelet
+    	metrics.k8s.io/v1beta1
+    
+    https://APISERVICE:PORT/apis/metrics.k8s.io/v1beta1/namespace/defauilt/pods/mypod
+    
+    自定义指标流水线
+		client ——> API Service ——> Promethus Adapater ——> (PromQL)promethus Server  ——> exporters/Instrumentation
+		custom.metrics.k8s.io/v1beta1
+		excernal.k8s.io/v1beta1
+		
+https://APISERVICE:PORT/apis/custom.metrics.k8s.io/v1beta1/namespace/defauilt/pods/mypod
+	
+	在 kube-aggregator 上添加反代，代理到 Promethus Adapater，Promethus Adapater 再发送给 promethus Server
+	
+	
+	资源类型
+		用于再 API Service 上注册反代的端点：APIService
+			
+			kube-aggregator 和 Promethus Adapater 要使用加密通信
+			方法两种
+			1 Promethus Adapater 的证书，是 kubernetes Master CA 签名
+			2 使用 --kubelet-insecure-tls 禁用证书验证
+			kube-aggregator 会通过 Kubernetes 的内部 DNS 名称（如 prometheus-adapter.monitoring.svc）访问 Adapter。
+			默认走的是 HTTPS，所以你要么配置 TLS，要么开启 insecureSkipTLSVerify。
+			
+			
+	监控 kubernetes 集群：
+		监控系统：
+			Promethus Service
+			Exporters/Instrumentation
+			Push Gateway
+			Alert Manager
+			Grafana
+			Blackbox Exporter
+			Node Exporter
+			
+			Kube-State-Metrics:
+				kubernetes Exporter 
+					除了前面的role之外还需要很多监控：
+						PVC
+						PV 
+						Delployment
+						StatefulSet
+```
+
+![image-20250413172032424](kubernetes/image-20250413172032424.png)
+
+```
+┌────────────────────┐
+│   Horizontal Pod   │
+│    Autoscaler (HPA)│
+└────────┬───────────┘
+         │ 访问自定义指标API（如：custom.metrics.k8s.io）
+         ▼
+┌────────────────────┐
+│  kube-apiserver    │
+│（内置 kube-aggregator）│
+└────────┬───────────┘
+         │ 匹配 APIService (custom.metrics.k8s.io)
+         ▼
+┌────────────────────────┐
+│   Prometheus Adapter   │  ◄────┐
+│(扩展API服务 + 注册APIService)│   │
+└────────┬───────────────┘       │
+         │ 查询 Prometheus       │
+         ▼                      │
+  ┌──────────────────────┐     │
+  │     Prometheus       │◄────┘
+  └──────────────────────┘
+```
+
+```powershell
+常见的部署方法
+部署 promethus 和 Promethus Adapater 
+	资源配置清单
+	helm
+	Promethus Operator:kube-promethus
+```
+
+
+
+#### 范例：helm 部署 Promethus
+
+需要先部署OpenEBS和ingress，metallb
+
+```bash
+#添加仓库
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#更新仓库
+helm repo update
+```
+
+```yaml
+#root@master01:~/k8s-prom/helm# cat prom-values.yaml 
+server:
+  name: server
+
+  # 限制部署运行2.x系列的Prometheus，3.x系列的版本同Metrics-APP示例存在兼容性问题；
+  # 现实应用中，可以不用顾及该限制；
+  image:
+    repository: quay.io/prometheus/prometheus
+    # if not set appVersion field from Chart.yaml is used
+    tag: "v2.55.1"
+    pullPolicy: IfNotPresent
+
+  # List of flags to override default parameters, e.g:
+  # - --enable-feature=agent
+  # - --storage.agent.retention.max-time=30m
+  # - --config.file=/etc/config/prometheus.yml
+  defaultFlagsOverride: []
+
+  extraFlags:
+    - web.enable-lifecycle
+    # 开启 Prometheus 的热加载配置接口，比如 /-/reload 接口可以触发配置重载。
+    ## web.enable-admin-api flag controls access to the administrative HTTP API which includes functionality such as
+    ## deleting time series. This is disabled by default.
+    # - web.enable-admin-api
+    ##
+    ## storage.tsdb.no-lockfile flag controls BD locking
+    # - storage.tsdb.no-lockfile
+    ##
+    ## storage.tsdb.wal-compression flag enables compression of the write-ahead log (WAL)
+    # - storage.tsdb.wal-compression
+
+  ## Path to a configuration file on prometheus server container FS
+  configPath: /etc/config/prometheus.yml
+
+  global:
+    # scrape_interval: 1m
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    # evaluation_interval: 1m
+    evaluation_interval: 15s
+    #配置全局抓取周期为 15 秒，抓取超时时间为 10 秒，规则评估周期也为 15 秒。
+  ## https://prometheus.io/docs/prometheus/latest/configuration/configuration/#remote_write
+  ##
+  remoteWrite: []
+  ## https://prometheus.io/docs/prometheus/latest/configuration/configuration/#remote_read
+  ##
+  remoteRead: []
+
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations: {}
+      #kubernetes.io/ingress.class: nginx
+      #kubernetes.io/tls-acme: 'true'
+
+    hosts:
+      - prometheus.kang.com
+      #启用了 ingress，通过 prometheus.kang.com 这个域名来访问 Prometheus UI。
+    path: /
+    pathType: Prefix
+
+  persistentVolume:
+    ## If true, Prometheus server will create/use a Persistent Volume Claim
+    ## If false, use emptyDir  
+    enabled: true
+    accessModes:
+      - ReadWriteOnce
+    mountPath: /data
+    size: 8Gi
+    storageClass: "openebs-hostpath"
+    #使用了持久化存储，采用的是 openebs-hostpath 存储类，数据保存位置为 /data，容量 8GB。
+
+  emptyDir:
+    sizeLimit: ""
+
+  ## 若副本数量多于1个，请启用下面的StatefulSet
+  replicaCount: 1
+
+  statefulSet:
+    ## 设置为“true”，才可将server的副本数量设置为1个以上
+    enabled: false
+
+    podManagementPolicy: OrderedReady
+
+    ## Alertmanager headless service to use for the statefulset
+    ##
+    headless:
+      servicePort: 9090
+      ## Enable gRPC port on service to allow auto discovery with thanos-querier
+      gRPC:
+        enabled: false
+        servicePort: 10901
+        # nodePort: 10901
+
+    pvcDeleteOnStsDelete: false
+    pvcDeleteOnStsScale: false
+
+  service:
+    ## If false, no Service will be created for the Prometheus server
+    ##
+    enabled: true
+
+    externalIPs: []
+    servicePort: 9090
+    type: ClusterIP
+
+
+  ## Prometheus data retention period (default if not specified is 15 days)
+  ##
+  retention: "15d"
+  #配置数据保存时间为 15 天。
+  ## Prometheus' data retention size. Supported units: B, KB, MB, GB, TB, PB, EB.
+  ##
+  retentionSize: ""
+
+## Prometheus server ConfigMap entries for rule files (allow prometheus labels interpolation)
+ruleFiles: {}
+
+## Prometheus server ConfigMap entries for scrape_config_files
+## (allows scrape configs defined in additional files)
+##
+scrapeConfigFiles: []
+
+## Prometheus server ConfigMap entries
+##
+serverFiles:
+  ## Alerts configuration
+  ## Ref: https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
+  alerting_rules.yml: {}
+  # groups:
+  #   - name: Instances
+  #     rules:
+  #       - alert: InstanceDown
+  #         expr: up == 0
+  #         for: 5m
+  #         labels:
+  #           severity: page
+  #         annotations:
+  #           description: '{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 5 minutes.'
+  #           summary: 'Instance {{ $labels.instance }} down'
+
+
+# adds additional scrape configs to prometheus.yml，其值必须为“字符”型数据，
+# 因此，需要在“extraScrapeConfigs:”添加一个“|”
+# example adds prometheus-blackbox-exporter scrape config
+extraScrapeConfigs: ""
+#这个字段可以用于添加额外的 scrape_configs，比如抓取黑盒探针、外部服务等
+  # - job_name: 'prometheus-blackbox-exporter'
+  #   metrics_path: /probe
+  #   params:
+  #     module: [http_2xx]
+  #   static_configs:
+  #     - targets:
+  #       - https://example.com
+  #   relabel_configs:
+  #     - source_labels: [__address__]
+  #       target_label: __param_target
+  #     - source_labels: [__param_target]
+  #       target_label: instance
+  #     - target_label: __address__
+  #       replacement: prometheus-blackbox-exporter:9115
+
+alertmanager:
+  enabled: true
+#启用 alertmanager，用于告警通知系统（例如发邮件、Slack、企业微信等）。
+
+  persistence:
+    size: 2Gi
+    storageClass: "openebs-hostpath"
+    accessModes:
+      - ReadWriteOnce
+
+kube-state-metrics:
+  enabled: true
+#启用 kube-state-metrics，用来采集 K8s 对象（如 Deployment、Pod、PVC 等）的状态信息。
+
+prometheus-node-exporter:
+  enabled: true
+#启用 node-exporter，用于采集节点的系统指标（CPU、内存、磁盘、网络等）。
+
+prometheus-pushgateway:
+  enabled: true
+#启用 PushGateway，适用于短生命周期任务（如批处理）主动 Push 指标到 Prometheus。
+
+  # Optional service annotations
+  serviceAnnotations:
+    prometheus.io/probe: pushgateway
+```
+
+```bash
+#部署 prometheus
+helm install prometheus prometheus-community/prometheus --namespace monitoring --values prom-values.yaml --create-namespace
+```
+
+**创建pod 抓取pod指标**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: metrics-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: metrics-app
+      controller: metrics-app
+  template:
+    metadata:
+      labels:
+        app: metrics-app
+        controller: metrics-app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - image: ikubernetes/metrics-app
+        name: metrics-app
+        ports:
+        - name: web
+          containerPort: 80
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "500m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metrics-app
+spec:
+  type: NodePort
+  ports:
+  - name: web
+    port: 80
+    targetPort: 80
+  selector:
+    app: metrics-app
+    controller: metrics-app
+```
+
+```yaml
+#解释
+template:
+  metadata:
+    labels:
+      app: metrics-app
+      controller: metrics-app
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "80"
+      prometheus.io/path: "/metrics"
+```
+
+`labels`：用于服务发现和选择器匹配。
+
+`annotations`：给 Prometheus 的 scrape 配置用，意思是：
+
+- `scrape: "true"` → 启用抓取
+- `port: "80"` → 抓取的端口
+- `path: "/metrics"` → 抓取的路径
+
+
+
+```bash
+#部署前确定pod是支持指标抓取的
+kubectl apply -f metrics-example-app.yaml 
+```
+
+#### 部署prometheus Adpater
+
+```yaml
+# Url to access prometheus
+prometheus:
+  # Value is templated
+  url: http://prometheus-server.monitoring.svc
+  port: 9090
+  path: ""
+
+replicas: 1
+
+rules:
+  default: true
+
+  # Enabling this option will cause custom metrics to be served at /apis/custom.metrics.k8s.io/v1beta1.
+  custom: []
+    # - seriesQuery: '{__name__=~"^some_metric_count$"}'
+    #   resources:
+    #     template: <<.Resource>>
+    #   name:
+    #     matches: ""
+    #     as: "my_custom_metric"
+    #   metricsQuery: sum(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)
+
+  # Mounts a configMap with pre-generated rules for use. Overrides the
+  # default, custom, external and resource entries
+  existing:
+
+  # Enabling this option will cause external metrics to be served at /apis/external.metrics.k8s.io/v1beta1. 
+  external:
+    # 基于应用上特定的http_requests_total指标生成http_requests_per_second指标的示例
+    - seriesQuery: 'http_requests_total{kubernetes_namespace!="",kubernetes_pod_name!=""}'
+      resources:
+        overrides:
+          kubernetes_namespace: {resource: "namespace"}
+          kubernetes_pod_name: {resource: "pod"}
+      name:
+        matches: "^(.*)_total"
+        as: "${1}_per_second"
+      metricsQuery: rate(<<.Series>>{<<.LabelMatchers>>}[1m])
+
+    # 有时，对于有些Java程序来说，基于内存资源用量进行自动扩缩容并不总是有效，因而可考虑根据JVM的平均使用量作为衡量指标；
+    # 下面就是用于生成相关自定义指标的规则示例；
+    - seriesQuery: '{__name__=~"jvm_memory_bytes_(used|max)",area="heap"}'
+      seriesFilters:
+      - is: ^jvm_memory_bytes_(used|max)$
+      resources:
+        overrides:
+          namespace:
+            resource: namespace
+          service:
+            resource : service
+          pod:
+            resource : pod
+      name:
+        matches: ^jvm_memory_bytes_(used|max)$
+        as: "jvm_used_percent_housing"
+      metricsQuery: ((sum((jvm_memory_used_bytes{area="heap", <<.LabelMatchers>>}))by(<<.GroupBy>>)*100/sum((jvm_memory_max_bytes{area="heap", <<.LabelMatchers>>}))by(<<.GroupBy>>)))/1000
+
+  # Enabling this option will cause resource metrics to be served at /apis/metrics.k8s.io/v1beta1
+  resource:
+    cpu:
+      containerQuery: |
+        sum by (<<.GroupBy>>) (
+          rate(container_cpu_usage_seconds_total{container!="",<<.LabelMatchers>>}[3m])
+        )
+      nodeQuery: |
+        sum  by (<<.GroupBy>>) (
+          rate(node_cpu_seconds_total{mode!="idle",mode!="iowait",mode!="steal",<<.LabelMatchers>>}[3m])
+        )
+      resources:
+        overrides:
+          node:
+            resource: node
+          namespace:
+            resource: namespace
+          pod:
+            resource: pod
+      containerLabel: container
+    memory:
+      containerQuery: |
+        sum by (<<.GroupBy>>) (
+          avg_over_time(container_memory_working_set_bytes{container!="",<<.LabelMatchers>>}[3m])
+        )
+      nodeQuery: |
+        sum by (<<.GroupBy>>) (
+          avg_over_time(node_memory_MemTotal_bytes{<<.LabelMatchers>>}[3m])
+          -
+          avg_over_time(node_memory_MemAvailable_bytes{<<.LabelMatchers>>}[3m])
+        )
+      resources:
+        overrides:
+          node:
+            resource: node
+          namespace:
+            resource: namespace
+          pod:
+            resource: pod
+      containerLabel: container
+    window: 3m
+```
+
+```bash
+helm install prometheus-adapter prometheus-community/prometheus-adapter --values prom-adapter-values.yaml --namespace monitoring
+```
+
+**测试**
+
+待Prometheus和Prometheus Adapter的相关Pod均就绪后，获取针对现存系统环境由规则生成的自定义指标信息。
+
+```bash
+kubectl get --raw /apis/custom.metrics.k8s.io/v1beta1
+```
+
+部署示例应用metrcis app，它附带有“http_requests_total”指标。
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/iKubernetes/k8s-prom/master/prometheus-adpater/example-metrics/metrics-example-app.yaml
+```
+
+待Metrics App的Pod就绪后，等待Prometheus Server的几个指标抓取周期，即可尝试获取由规则生成自定义指标http_requests_per_second。
+
+```bash
+kubectl get --raw /apis/custom.metrics.k8s.io/v1beta1/namespaces/default/pods/*/http_requests_per_second | jq .
+```
+
+### HPA
+
+####  范例：基于 prometheus Adpater实现自动扩缩容
+
+```bash
+kind: HorizontalPodAutoscaler
+apiVersion: autoscaling/v2
+metadata:
+  name: metrics-app-hpa  # HorizontalPodAutoscaler 的名称
+spec:
+  # scaleTargetRef：指定要自动扩缩容的目标资源（这里是 Deployment）
+  scaleTargetRef:
+    apiVersion: apps/v1  # 目标资源的 API 版本
+    kind: Deployment     # 目标资源的类型，表示这是一个 Deployment
+    name: metrics-app    # 目标资源的名称，表示我们要操作名为 'metrics-app' 的 Deployment
+  minReplicas: 2  # 最小副本数，当负载较低时，Pod 数量将不会小于 2
+  maxReplicas: 10 # 最大副本数，负载增加时，Pod 数量不会超过 10
+  metrics:
+  - type: Pods  # 这里使用的是基于 Pod 的自定义指标来调整副本数
+    pods:
+      metric:
+        name: http_requests_per_second  # 自定义指标的名称，表示每秒 HTTP 请求数
+      target:
+        type: AverageValue  # 指标的目标类型，表示平均值
+        averageValue: 5     # 如果每个 Pod 的 http_requests_per_second 指标的平均值超过 5，则扩容
+  behavior:
+    # 扩缩容时的行为设置
+    scaleDown:
+      stabilizationWindowSeconds: 120  # 缩容时的稳定时间窗口，表示缩容操作将在 120 秒内稳定执行，避免频繁缩容
+```
+
+```bash
+kubectl apply -f metrics-app-hpa.yaml
+
+#kubectl get hpa
+NAME              REFERENCE                TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
+metrics-app-hpa   Deployment/metrics-app   <unknown>/5   2         10        0          13s
+```
+
+
+
+#### 范例：部署blackbox-exporter
+
+Blackbox Exporter
+
+部署Blackbox Exporter，启用黑盒监控；如下命令指定了Release名称为“prometheus-blackbox-exporter”，该名称作为Service名称，将被下面示例中的配置引用。
+
+```bash
+helm install --name-template prometheus-blackbox-exporter  prometheus-community/prometheus-blackbox-exporter \
+          -f blackbox-exporter-values.yaml -n monitoring
+```
+
+随后，需要在Prometheus的values文件中，启用额外的Scrape Job，以关联Blackbox Exporter。一个示例配置如下，注意该字段的值必须为字符型数据，因此需要在字段后添加“|”。
+
+```yaml
+extraScrapeConfigs: |
+  - job_name: 'prometheus-blackbox-exporter'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - https://www.magedu.com
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: prometheus-blackbox-exporter:9115
+```
+
+最后，更新Prometheus的Release，确保配置生效。
+
+blackbox-exporter-values.yaml:
+
+```yaml
+config:
+  modules:
+    http_2xx:
+      prober: http
+      timeout: 5s
+      http:
+        valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+        follow_redirects: true
+        preferred_ip_protocol: "ip4"
+
+
+extraConfigmapMounts: []
+  # - name: certs-configmap
+  #   mountPath: /etc/secrets/ssl/
+  #   subPath: certificates.crt # (optional)
+  #   configMap: certs-configmap
+  #   readOnly: true
+  #   defaultMode: 420
+
+service:
+  type: ClusterIP
+  port: 9115
+
+ingress:
+  enabled: true
+  className: "nginx"
+  hosts:
+    - host: probe.kang.com
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+
+extraArgs: []
+  # - --history.limit=1000
+
+replicas: 1
+
+# Extra manifests to deploy as an array
+extraManifests: []
+  # - apiVersion: v1
+  #   kind: ConfigMap
+  #   metadata:
+  #   labels:
+  #     name: prometheus-extra
+  #   data:
+  #     extra-data: "value"
+
+configReloader:
+  enabled: false
+  containerPort: 8080
+  config:
+    logFormat: logfmt
+    logLevel: info
+    watchInterval: 1m
+```
+
+
+
+#### 范例：部署grafana
+
+```bash
+#添加仓库
+helm repo add grafana https://grafana.github.io/helm-charts
+
+#部署
+helm install grafana grafana/grafana -n monitoring --create-namespace
+
+#创建ingress
+kubectl create ingress grafana \
+  --rule=grafana.kang.com/=grafana:80 \
+  --class=nginx \
+  -n monitoring
+```
+
+```bash
+#helm部署的grafana的密码
+kubectl get secret grafana -n monitoring -o jsonpath="{.data.admin-password}" | base64 --decode
+```
+
+
+
+### 部署promethus operator
+
+```
+https://github.com/prometheus-operator/kube-prometheus
+```
+
+```bash
+git clone https://github.com/prometheus-operator/kube-prometheus.git
+cd kube-prometheus/
+
+kubectl apply --server-side -f manifests/setup
+
+kubectl wait \
+	--for condition=Established \
+	--all CustomResourceDefinition \
+	--namespace=monitoring
+	
+kubectl apply -f manifests/
+```
+
+配置ingress查看grafana
+
+```yaml
+apiVersion: v1
+items:
+- apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    creationTimestamp: "2025-04-22T06:08:25Z"
+    generation: 2
+    name: grafana
+    namespace: monitoring
+    resourceVersion: "1147712"
+    uid: 6c9c64fd-5340-42b2-8b08-f6b1c855920d
+  spec:
+    ingressClassName: nginx
+    rules:
+    - host: grafana.kang.com
+      http:
+        paths:
+        - backend:
+            service:
+              name: grafana
+              port:
+                number: 3000
+          path: /
+          pathType: Prefix
+  status:
+    loadBalancer:
+      ingress:
+      - ip: 10.0.0.100
+kind: List
+metadata:
+  resourceVersion: ""
+```
+
+
+
+## 调度器和调度流程-kube-scheduler
+
+```powershell
+kube-scheduler 调度过程
+
+节点预选
+	根据预选策略（Predicates）过滤掉所有不符合运行该 pod 的节点，只保留可以运行该 pod 的节点
+节点优选
+	根据优选策略（Priorities）对可以运行该 pod 的节点进行打分，并根据得分的节点进行逆序排序
+选定
+	选定，并把该 pod 绑定到得分最高的 node 上
+	
+
+可调度节点
+	首先要满足Pod的资源需求
+	而后要满足同其它Pod间的特殊关系限制
+	再次要满足同Node之间的限制条件
+	最后确保整个集群资源得到合理利用
+```
+
+![image-20250420125544441](kubernetes/image-20250420125544441.png)
+
+#### 预选算法Predicates
+
+```powershell
+Predicates的功能，大体相当于节点过滤器(Filter)
+	它基于调度策略，从集群的所有节点中，过滤出符合条件的节点
+	执行具体过滤操作的是一组预选插件plugin)
+经典调度器的预选算法分类
+	存储约束条件
+		名称中带有Disk或Volume的算法
+	Pod间的特殊关系限制
+		MatchInterPodAffinity
+	Pod同Node的限制约束
+		名称中带有Node的算法
+		General Predicates
+	Pod的散置性要求
+		CheckServiceAffinity
+		EvenPodsSpread
+```
+
+![image-20250420130707439](kubernetes/image-20250420130707439.png)
+
+```powershell
+几个重要的Predicates说明
+	PodFitsHostPorts
+		检查Pod的各Containers中声明的Ports是否已经被节点上现有的Pod所占用
+	MatchNodeSelector
+		检查Pod的spec.affinity.nodeAffinity和spec.nodeSelector的定义是否同节点的标签相匹配
+	PodFitsResources
+		检查Pod的资源需求是否能被节点上的可用资源量所满足
+	PodToleratesNodeTaints
+		检查Pod是否能够容忍节点土的污点
+	MaxCSIVolumeCount
+		检查Pod依赖的由某CSI插件提供的PVC，是否超出了节点的单机上限
+	MatchInterPodAffinity
+		检查Pod间的亲和和反亲和定义是否得到满足
+	EvenPodsSpread
+		为一组Pod设定在指定TopologyKey上的散置要求，即打散一组Pod至不同的拓扑位置
+```
+
+#### 优选算法Priorities
+
+```powershell
+Priorities的功能，大体相当于计分器
+	执行具体打分操作的是一组优选算法
+	每个节点的总得分，则由各算法为其评分的各项分值之和
+经典优选算法的分类
+	节点资源分配倾向
+		BalancedResourceAllocation
+		LeastRequestedPriority/MostRequestedPriority
+		Resourcel imitsPriority
+		RequestedToCapacityRatioPriority
+	Pod散置
+		SelectorSpreadPriority、EvenPodsSpreadPriority、ServiceSpreadingPriority
+	Node亲和与反亲和
+		NodeAffinityPriority、NodePreferAvoidPodsPriority
+		TaintTolerationPriority
+		ImageLocalityPriority
+	Pod间的亲和与反亲和
+		InterPodAffinityPriority
+```
+
+![image-20250420153718286](C:/Users/zhaok/AppData/Roaming/Typora/typora-user-images/image-20250420153718286.png)
+
+
+
+#### 调度框架
+
+**框架工作流程**
+
+调度框架上定义了一些扩展点，调度器插件完成注册后可以一个或多个扩展点上被调用
+
+每次调度一个pod的尝试都可划分为两个阶段：**调度周期**和**绑定周期**
+
+![image-20250420161158722](kubernetes/image-20250420161158722.png)
+
+
+
+```bash
+#默认的两个priorityclasses
+root@master01:/etc/kubernetes/manifests# kubectl get priorityclasses.scheduling.k8s.io 
+NAME                      VALUE        GLOBAL-DEFAULT   AGE     PREEMPTIONPOLICY
+system-cluster-critical   2000000000   false            2d22h   PreemptLowerPriority
+system-node-critical      2000001000   false            2d22h   PreemptLowerPriority
+
+```
+
+
+
+## 资源约束和 Pod Qos
+
+```powershell
+资源需求和资源限制
+	资源需求(requests)
+		定义需要系统预留给该容器使用的资源最小可用值
+		容器运行时可能用不到这些额度的资源，但用到时必须确保有相应数量的资源可用
+		资源需求的定义会影响调度器的决策
+	资源限制(limits)
+		定义该容器可以申请使用的资源最大可用值，超出该额度的资源使用请求将被拒绝
+		该限制需要大于等于requests的值，但系统在其某项资源紧张时，会从容器那里回收其使用的超出其requests值的那部分
+		
+requests和limits定义在容器级别，主要围绕cpu、memory、hugepages和ephemeral-storage四种资源
+	spec.containers.resources.limits.
+		cpu、memory、hugepages-<size>和ephemeral-storage
+	spec.containers.resources.requests.
+		cpu、memory、hugepages-<size>和ephemeral-storage
+		
+Extended resources
+	所有那些不属于kubernetes.io域的资源，即为扩展资源，例如"nvidia.com/gpu"
+	又存在节点级别和集群级别两个不同级别的扩展资源
+```
+
+```powershell
+Pod QoS的类别
+	Guaranteed
+		CPU和Memory都要满足条件:requests==limits
+		其它资源类型不作限制
+	Burstable
+		CPU和Memory其一满足条件:requests!=limits
+		该类别的适用条件最为宽泛
+	BestEffort
+		所有资源上都没有设定requests和limits
+调度器考虑的要素
+	仅会根据requests的值进行调度
+	预选算法
+		PodFitsResources
+	优选算法
+		LeastRequestedPriority/MostRequestedPriority
+		BalancedResourceAlocation
+```
+
+![image-20250420163052563](kubernetes/image-20250420163052563.png)
+
+
+
+## Node Affnity——Node亲和调度
+
+亲和调度：
+
+- Pod对节点亲和：判定标准取决于自身属性
+
+  - nodeName
+
+  - nodeSelector
+
+  - `pods.spec.affinity.nodeAffinity`
+
+    软亲和
+    	`preferredDuringSchedulingIgnoredDuringExecution		<[]PreferredSchedulingTerm>`
+    		`preference`:条件
+    		`weight`:权重
+    硬亲和
+    	`requiredDuringSchedulingIgnoredDuringExecution		<NodeSelector>`
+
+
+
+- Pod间的亲和：判定标准取决于节点上已存在的pod的属性
+
+  - `pods.spec.affinity.podAffinity`
+
+    软亲和
+    	`preferredDuringSchedulingIgnoredDuringExecution	<[]WeightedPodAffinityTerm>`
+    		`podAffinityTerm	<PodAffinityTerm> -required- `：条件-pod的筛选条件
+    		`weight`：权重-得分
+    硬亲和
+    	`requiredDuringSchedulingIgnoredDuringExecution	<[]PodAffinityTerm>`
+
+    ​		`labelSelector	<LabelSelector>`
+
+    ​		`topologyKey	<string> -required-`
+
+    - labelSelector:
+        matchLabels:
+          app: myapp
+        topologyKey: kubernetes.io/hostname
+
+    字段说明
+    labelSelector	匹配目标 Pod 的标签（也就是你想靠近的 Pod）
+    topologyKey	表示匹配的粒度，比如按节点 (kubernetes.io/hostname)、机架、区域等
+
+    | 类型                                              | 字段 | 是否必须满足 | 场景                 |
+    | ------------------------------------------------- | ---- | ------------ | -------------------- |
+    | `requiredDuringSchedulingIgnoredDuringExecution`  | 强制 | 必须满足     | 精确调度需求         |
+    | `preferredDuringSchedulingIgnoredDuringExecution` | 优先 | 尽量满足     | 柔性调度，实用性更强 |
+
+    ​		**pod拓补分散约束:**
+
+    ​			定义跨拓补域分配工作负载的策略
+
+    ​			常用于在不显著增加成本的情况下增强抵御紫铜故障的能力
+
+    ​				可基本策略确保在可用区中仍存在可用pod
+
+    ​		**拓扑域**
+
+​							在kubernetes中，拓扑域是指按节点标签定义和分组的节点集合
+
+​							例如，区域、可用区、机架、主机名都可以作为将节点划分成不同拓扑域的依据
+
+​								Kubernetes使用Topology Key(拓扑键)来定义将节点划分至不同拓扑域的标准
+
+![image-20250421164957180](kubernetes/image-20250421164957180.png)
+
+Pod的分散约束：
+
+`pods.spec.topologySpreadConstraints`
+
+散置偏差（Skew）
+
+Pod打散调度至多个拓扑域后，拥有Pod数量做多的拓扑域，与拥有Pod数量最少的拓扑域之间的差值
+
+![image-20250421172744276](kubernetes/image-20250421172744276.png)
+
+Pod分散约束中允许的最大偏差及妥协策略
+
+- Pod分散约束策略基于允许的最大偏差(maxSkew)来定义Pod在拓扑域中的分散逻辑
+- 无法满足最大偏差约束时，whenUnsatishable则用于定义妥协策略
+  - DoNotSchedule (默认):不予调度，Pod将处于Pending状态，实现的是硬限制
+  - ScheduleAnyway:根据每个节点的skew值打分排序后进行调度，因而实现的是软限制
+
+`kubectl explain pods.spec.topologySpreadConstraints.`：跨节点进行冗余
+
+​	`whenUnsatisfiable	<string> -required-`
+
+​			`DoNotSchedule`：条件不符合，一定不能调度过去
+
+​			`ScheduleAnyway`：无论如何都要调度过去
+
+​		`maxSkew	<integer> -required-`：允许的最大偏差多大
+
+​		`minDomains	<integer>`：允许的最小偏差
+
+​		`labelSelector	<LabelSelector>`：对那一组pod进行调度
+
+
+
+- Pod间的反亲和
+  	`pods.spec.affinity.podAntiAffinity`
+
+  kubectl explain pods.spec.affinity.nodeAffinity
+  	
+
+Pod对节点亲和
+
+- 基于Pod和Node关系的调度策略，称为Node亲和调度
+
+何时需要用到Afhnity调度?
+
+- Pod的运行依赖于特殊硬件，例如SSD或GPU，但这些设备仅部分节点具备具有高计算量要求的Pod，也可能需要限制运行在特定的节点
+
+
+
+#### 硬亲和和软亲和
+
+```powershell
+Pod与Node的亲和关系存在两种约束强度
+	硬亲和:必须满足的亲和约束，约束评估仅发生在调度期间
+    	requiredDuringSchedulinglgnoredDuringExecution
+    		必须调度至满足条件的节点
+    软亲和:有倾向性的亲和约束，不同的约束条件存在不同的权重，约束评估同样仅发生在调度期间
+    	preferredDuringSchedulingIgnoredDuringExecution
+    		优先调度至更为满足条件(权重更高)的节点
+```
+
+```yaml
+#范例：
+apiVersion: v1
+kind: Pod
+metadata:
+  name: affinity-example
+spec:
+  affinity:
+    nodeAffinity:
+      # 软亲和性：优先调度到 SSD 节点
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: "disktype"
+                operator: "In"
+                values: ["ssd"]
+      # 硬亲和性：必须调度到 AMD64 架构节点
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: "kubernetes.io/arch"
+                operator: "In"
+                values: ["amd64"]
+  containers:
+    - name: nginx
+      image: nginx
+```
+
+```powershell
+节点上的预定义标签
+	kubernetes.io/hostname:节点名称
+	kubernetes.io/os:操作系统，v1.14版本起启用
+	kubernetes.io/arch:平台架构类型，v1.14版本起启用
+匹配节点表达式(matchExpressions)支持操作符
+	In:指定的label的值存在于给定列表中
+	NotIn:指定的label的值未存在于给定列表中
+	Gt:指定的label的值大于给定值
+	Lt:指定的label的值小于给定值
+	Exists:指定label存在于节点上
+	DoesNotExist:指定label末存在于节点上
+```
+
+<img src="kubernetes/image-20250421163414382.png" alt="image-20250421163414382" style="zoom:50%;" />
+
+**节点软亲和**
+
+![image-20250421163532061](kubernetes/image-20250421163532061.png)
+
+
+
+## Taints 与 Tolerations 污点和容忍度
+
+Taints：节点上的属性
+
+Tolerations：pod属性
+
+软限制：不能容忍这个污点，但是没有其他节点可调度，也可以调度过来
+
+硬限制：不能容忍node上的污点就一定不能调度过来
+
+**Node Taints 和 Tolerations调度**
+
+**Node Taints**
+
+- 基于Pod和Node关系的调度策略
+  - Node Afinity，用于定义Pod对Node的倾向性，即基于Node的特定属性(标签或字段)来吸引特定的Pod
+  - 而Node Taints(污点)则产生的是反向作用力，它用于让Node来排斥特定的Pod，仅那些能够容忍Node Taints的Pod才能运行于该节点上
+  - Pod上定义的用于容忍Node Taints的属性，称为Pod容忍度(Toleration)
+  - Taint和Toleration相互配合，可以用来阻止调度器将Pod分配到不适用的节点上
+- Node Taints
+  - 节点属性，定义在spec.taints字段上
+  - 也可由“kubect taint”命令进行添加或移除等管理操作
+    - `kubectl taint nodes NAME KEY_1=VAL_1:TAINT_EFFECT_1 .. KEY_N=VAL_N:TAINT_EFFECT_N [options]`
+  - 污点效用:指示该污点不能得到容忍时，将如何影响调度
+    - PreferNoSchedule:不能容忍该污点的Pod，要尽量避免调度至该节点
+    - NoSchedule:不能容忍则不许调度至该节点，但仅在调度决策执行期间产生影响，不影响已经运行于该节点的Pod
+    - NoExecute:不能容忍则不许调度至该节点，且将会对已经运行于该节点的Pod产生影响
+      - 不能容忍该污点的Pod将立即被驱逐
+      - 若Pod能够容忍该污点，日Pod的容忍度上未定义tolerationSeconds，则Pod可以一直运行于该节点
+      - 若Pod能够容忍该污点，月Pod的容忍度上定义了tolerationSeconds，则Pod运行指定的时长后即会被驱逐
+
+**Tolerations**
+
+- 管理Pod容忍度
+  - Pod属性，定义在字段上 `spec.tolerations`字段上，列表值
+  - 每个列表项出key、operator、value、toleratinSeconds和effect几个字段组成
+    - key:容忍度键，即容忍的污点键
+    - operator:操作符，仅支持“Equal”和“Exists”两个
+    - value:键值
+    - effect:容忍的污点效用，可用值与Node Taint相同
+    - tolerationSeconds:NoExecute效用下，当前Pod可容忍某污点时，在驱逐前容许运行的时长
+- 如何评估容忍度是否匹配污点?
+  - 一个容忍度“匹配”到一个污点，是指二者之间具有同样的key和effect，并且满足如下两个条件之一
+    - operator是Exists
+    - operator是Equal，且二者的value相同
+  - 特殊情形
+    - 若某个容忍度的key为空，且operator为Exists，表示其可以容忍任意污点
+    - 若effect为空，则可以匹配所有键名相同的污点
+
+**容忍度与污点的匹配机制**
+
+- 节点上可定义多个Taints，Pod上也可定义多个Toleratons，针对一个节点，调度器调度决策过程如下
+  - 遍历该节点的所有污点，并过滤掉容忍度可匹配到的污点
+  - 余下未被过滤掉的污点，则由污点的cffect来判定其满足状态
+    - 若存在至少一个效用为NoSchedule的污点，则Pod不会被调度至该节点
+    - 若不存在效用为NoSchedule的污点，但至少存在一个效用为PrefcrNoSchedule的污点，则调度器会尝试避免将Pod调度至该节点
+    - 若存在至少一个效用为NoFxecute的污点，则Pod不会被调度至该节点;若Pod已经运行于该节点，则Pod还将被驱逐
+- 何时需要使用基于Taint和Toleration的调度?
+  - 存在需要保留某些节点，避免调度器自行调度Pod至这些节点，或者将Pod从某些节点驱逐
+  - 保留给某些用户，或某特定应用的专用节点，例如专用于Ingress Controller的节点
+  - 配置了特殊硬件，只期望将用到这些硬件的Pod调度至这些具有特殊硬件的节点
+
+**基于污点的驱逐**
+
+- 节点状态相关的某种条件(Node Conditons)为真时，节点控制器会自动给节点添加一个污点
+  - node.kubernetes.io/not-ready:节点未就绪，即节点状况Ready的值为"False'
+  - node.kubernetes.io/unreachable:节点控制器访问不到节点，即节点状况Ready的值为"Unknown"
+  - node.kubernetes.io/memory-pressure:甘点内存资源紧张node.kubernetes.io/disk-pressure:节点磁盘空间资源紧张
+  - node.kubernetes.io/pid-pressure:节点PID资源紧张node.kubernetes.io/network-unavailable:古点双终不可
+  - node.kubernetes.io/unschedulable:节点不可用于调度
+  - node.cloudprovider.kubernetes.io/uninitialized: cloud provider尚未进行初始化
+- 控制平面基于Node Controller自动创建 与节点状况对应的、效果为NoSchedule的污点
+  - 调度器在进行调度时会检查节点上的污点，而非检查节点状况
+  - 新建Pod时，可以通过添加相应的容忍度来忽略节点状况。
+
+
+
+#### 范例：Master节点上的污点
+
+```yaml
+spec:
+  taints:
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/control-plane
+```
+
+有些Pod可以自动添加运行至Master例如：
+
+#### 1. **MetalLB speaker Pod 的 Tolerations**
+
+这些 tolerations 允许 speaker Pod 调度到如下节点上：
+
+```yaml
+tolerations:
+  # 容忍 master 节点的 NoSchedule 污点，允许部署到 master 节点上
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/master
+    operator: Exists
+
+  # 容忍 control-plane 节点的 NoSchedule 污点，允许部署到 control-plane 节点上
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/control-plane
+    operator: Exists
+
+  # 容忍节点状态为 NotReady 的情况，不会被立即驱逐
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+
+  # 容忍节点不可达的情况（例如断网），不会被立即驱逐
+  - effect: NoExecute
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+
+  # 容忍节点磁盘压力过大，不影响调度
+  - effect: NoSchedule
+    key: node.kubernetes.io/disk-pressure
+    operator: Exists
+
+  # 容忍节点内存压力过大，不影响调度
+  - effect: NoSchedule
+    key: node.kubernetes.io/memory-pressure
+    operator: Exists
+```
+
+> ✅ 作用：允许部署在 master/control-plane 节点，并容忍节点短暂故障和资源压力。
+
+------
+
+#### 🔷 2. **Cilium Agent Pod 的 Tolerations**
+
+```yaml
+tolerations:
+  # 容忍 NotReady 节点（暂时失联）
+  - operator: Exists
+    effect: NoExecute
+    key: node.kubernetes.io/not-ready
+
+  # 容忍 Unreachable 节点（彻底失联）
+  - operator: Exists
+    effect: NoExecute
+    key: node.kubernetes.io/unreachable
+
+  # 容忍磁盘压力，允许调度
+  - operator: Exists
+    effect: NoSchedule
+    key: node.kubernetes.io/disk-pressure
+
+  # 容忍内存压力，允许调度
+  - operator: Exists
+    effect: NoSchedule
+    key: node.kubernetes.io/memory-pressure
+
+  # 容忍 PID 压力（进程数量限制）
+  - operator: Exists
+    effect: NoSchedule
+    key: node.kubernetes.io/pid-pressure
+```
+
+> ✅ 作用：容忍多种系统压力和节点不可达，确保网络组件稳定运行。
+
+------
+
+#### 🔷 3. **CoreDNS Pod 的 Tolerations**
+
+```yaml
+tolerations:
+  # 容忍只调度 CriticalAddonsOnly 的节点（表示是核心组件）
+  - key: CriticalAddonsOnly
+    operator: Exists
+
+  # 容忍 control-plane 污点，允许部署在控制节点上
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/control-plane
+    operator: Exists
+
+  # 节点 not-ready 时最多容忍 300 秒，再被驱逐
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+    tolerationSeconds: 300
+
+  # 节点 unreachable 时最多容忍 300 秒，再被驱逐
+  - effect: NoExecute
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+    tolerationSeconds: 300
+```
+
+> ✅ 作用：
+
+- `CriticalAddonsOnly`：表示这个 Pod 属于关键组件。
+- 容忍 control-plane 节点、不可达状态 300 秒。
+
+#### 使用方法
+
+要将 Kubernetes 控制节点设置为不可调度，可以使用以下命令：
+
+```bash
+kubectl taint nodes <node-name> node-role.kubernetes.io/master:NoSchedule
+```
+
+其中 `<node-name>` 是你要设置为不可调度的节点名称，`node-role.kubernetes.io/master` 是节点的标签，`NoSchedule` 是污点类型，表示该节点不能调度任何新的 pod。
+
+如果你要让该节点重新变得可调度，可以使用：
+
+```bash
+kubectl taint nodes <node-name> node-role.kubernetes.io/master:NoSchedule-
+```
+
+这样会移除节点上的污点，允许新的 pod 被调度到该节点。
+
+
+
+
+
+## 网络插件CNI
+
+```powershell
+三个网络：
+	节点网络：管理员自行管理
+		每个节点都拥有该地址范围内的一个地址，配置在节点的某个接口上
+	Service网络：也称为集群网络，由集群负责管理，虚拟网络
+		10.96.0.0/12
+		ClusterIP
+			存在于iptables/nftables/ipvs规则
+     pod网络：CNI接口，委托第三方插件实现
+     	kubenet ——> flannel (coreos)
+     	CNI ——> 
+     		Calico
+     		Cilium
+     		...
+将Pod接入网络之前要完成任务
+	1、创建专用的虚拟网络:
+		依托内核功能来实现
+		Kubernetes要求:所有的Pod要位于同一个网络平面，Pod间可以直接通信
+			隧道网络，overlay
+			底层网络：underlay
+				MACVLAN，IPVLAN
+	2、给Pod提供一个网络接口
+		veth pair:虚拟以太网网卡对
+		SR-IOV
+	3、将Pod通过其网络接口接入到虚拟网络
+		veth pair
+			一段注入到Pod内作为网络接口使用
+			另一端驻留于节点：
+				创建一个虚拟网桥:驻留于节点这一端关联至该网桥即可，二层连通
+				无需虚拟网桥，而是直接驻留于节点内核上，三层连通
+	4、给Pod的网络接口分配IP地址
+
+简单来说，目前的CNI规范主要由NetPlugin(网络插件)和IPAM两个插件API组成
+	网络插件也称Main插件，负责创建/删除网络以及向网络添加/删除容器
+		它专注于连通容器与容器之间以及容器与宿主机之间的通信，同容器相关网络设备通常都由该类插件所创建，例如bridge、ipvlan、macvlan、loopback、ptp、veth以及vlan等虚拟设备
+	IPAM的全称“IP Address Management"，该类插件负责创建/删除地址池以及分配/回收容器的IP地址
+		目前，该类型插件的实现主要有host-local和dhcp两个，前一个基于预置的地址范围进行地址分配，而后一个通过dhcp协议获取地址;
+		
+	虚拟网络
+    	隧道模型：Overlay
+    		vxlan ——> flannel , calico , cilium
+    		ipip ——> calico
+    		隧道开销：vxlan和ipip的开销不同
+		承载模型：Underlay
+			IPVLAN/MACVLAN: 二层解决方案
+				MACVLAN:
+					把pod的MAC地址通过MACVLAN虚拟到内核的网卡上
+					需要打开混杂模式，有安全风险
+				IPVLAN
+					所有后端的pod共享物理网卡的MAC地址，IP不同，需要用到IPVLAN来区分到那个后端Pod
+				使用VLAN的化，需要配置交换机VLAN， 
+			Native Routing: 三层解决方案
+				flannel:查询库生成路由表
+				calico:BGP协议学习生成
+				cilium:BGP协议学习生成,但cilium自身并不支持BGP,需要额外再部署一个网络插件（kube-router）lai'ti
+				把内核作为路由器
+				节点间不能跨路由器
+
+网络插件：
+	Pod网络:连通Pod，包括跨节点的Pod
+	链路加密:VPN
+		IPSec
+		WireGuard
+	网络策略（NetworkPolicy）
+		控制特定的Pod的（跨租户）通信
+		反向：
+			Egress
+			Ingress
+
+Pod网络地址：
+	Flannel：10.244.0.0/16
+		16bits: 10.244.0.0/24 ——> 10.244.255.0/24：256个，最多256个节点
+		每个节点容纳的Pod数量：
+			8bit：pod地址：
+				10.244.0.0 ——> 10.244.0.255
+					0000 0000：网络地址
+					1111 1111：广播地址
+					
+					256-2：254个可用地址;默认110个Pod
+	Calico： 192.168.0.0/16
+		10bits: 2^10 = 1024,最多可以容纳1024个节点
+		6bits: 2^6 -2 = 62,每个节点最多容纳62个Pod
+```
+
+### flannel
+
+```powershell
+使用“虚拟网桥和veth设备”的方式为Pod创建虚拟网络接口，通过可配置的“后端”定义Pod间的通信网络，支持基于VXLAN和UDP的Overlay网络，以及基于三层路由的Underlay网络
+	虚拟网桥cni0
+	隧道接口通常为flannel.1
+在IP地址分配方面，它将预留的一个专用网络(默认为10.244.0.0/16)切分成多个子网后作为每个节点的podCIDR，而后由节点以IPAM插件host-local进行地址分配，并将子网分配信息保存于etcd之中
+
+flanneld
+	Flannel在每个主机上运行一个名为fanneld的二进制代理程序
+	该程序负责从预留的网络中按照指定或默认的掩码长度为当前节点申请分配一个子网，并将网络配置、已分配的子网和辅助数据(例如主机的公网IP等)存储于Kubernetes API或etcd之中
+Flannel使用称为后端(backend)的容器网络机制转发跨节点的Pod报文，它目前支持的主流backend如下
+	vxlan
+		使用Linux内核中的vxlan模块封装隧道报文，以叠加网络模型支持跨节点的Pod间互联互通
+		额外支持直接路由(Direct Routing)模式，该模式下位于同二层网络内的节点之上的Pod间通信可通过路由模式直接发送，而跨网络的节点之上的Pod间通信仍要使用VXLAN隧道协议转发
+		vxlan后端模式中，fanneld监听于8472/UDP发送封装的数据包;
+	host-gw
+		类似于VXLAN中的直接路由模式，但不支持跨网络的节点，因此这种方式强制要求各节点本身必须在同一个二层网络中，不太适用于较大的网络规模
+		有着较好的转发性能，且易于设定，推荐对报文转发性能要求较高的场景使用
+		
+VXLAN 隧道模式
+	对节点网络几乎没有限制
+	存在开销
+	
+host-gw 路由模式
+	要求所有网路必须位于同一网络平面
+	没有网络开销，性能好
+	
+混合网络
+	同一网络平面上的使用host-gw，跨网络通信的，使用VXLAN
+	
+#查看使用的网络模式
+root@master01:~# kubectl get cm -n kube-flannel 
+NAME               DATA   AGE
+kube-flannel-cfg   2      17d
+root@master01:~# kubectl get cm -n kube-flannel kube-flannel-cfg -o yaml 
+
+#查看node使用的网段
+root@master01:~# kubectl get nodes node1.kang.com -o yaml 
+...
+spec:
+  podCIDR: 10.244.1.0/24
+  podCIDRs:
+  - 10.244.1.0/24
+...
+
+root@master01:~# kubectl get nodes node1.kang.com -o jsonpath={.spec.podCIDR}
+10.244.1.0/24
+```
+
+![image-20250502135254219](kubernetes/image-20250502135254219.png)
+
+![image-20250505143950342](kubernetes/image-20250505143950342.png)
+
+![image-20250505144424297](kubernetes/image-20250505144424297.png)
+
+###  Calico
+
+
+
+
+
+
+
+## Velero备份
+
+### 部署Velero
+
+```bash
+# 下载velero（Velero客户端）
+[root@master-01 src]#wget https://github.com/vmware-tanzu/velero/releases/download/v1.16.0/velero-v1.16.0-linux-amd64.tar.gz -O /usr/local/src/velero-v1.16.0-linux-amd64.tar.gz
+
+[root@master-01 src]#tar xf velero-v1.16.0-linux-amd64.tar.gz 
+[root@master-01 src]#mv velero-v1.16.0-linux-amd64/velero /usr/local/bin
+
+# 测试
+[root@master-01 src]#velero version
+Client:
+	Version: v1.16.0
+	Git commit: 8f31599fe4af5453dee032beaf8a16bd75de91a5
+```
+
+### 配置Velero认证环境
+
+```bash
+# 工作目录：
+[root@master-01 src]#mkdir -p /data/velero
+[root@master-01 src]#cd /data/velero/
+
+# 访问minio的认证文件：
+[root@master-01 velero]#vim velero-auth.txt
+[default]
+aws_access_key_id = admin
+aws_secret_access_key = admin123
+
+# 准备user-csr文件
+[root@master-01 velero]#vim awsuser-csr.json
+{
+  "CN": "awsuser",
+  "hosts": [],
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "BeiJing",
+      "L": "BeiJing",
+      "O": "k8s",
+      "OU": "System"
+    }
+  ]
+}
+
+# 准备证书签发环境
+[root@master-01 velero]#apt install golang-cfssl -y
+[root@master-01 velero]#wget https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssl_1.6.1_linux_amd64
+[root@master-01 velero]#wget https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssljson_1.6.1_linux_amd64
+[root@master-01 velero]#wget https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssl-certinfo_1.6.1_linux_amd64
+[root@master-01 velero]#mv cfssl-certinfo_1.6.1_linux_amd64 cfssl-certinfo
+[root@master-01 velero]#mv cfssl_1.6.1_linux_amd64 cfssl
+[root@master-01 velero]#mv cfssljson_1.6.1_linux_amd64 cfssljson
+[root@master-01 velero]#cp cfssl-certinfo cfssljson cfssl /usr/local/bin/
+[root@master-01 velero]#chmod a+x /usr/local/bin/cfssl*
+
+# 执行证书签发
+# kubernetes版本 >= 1.24
+[root@haproxy1 ssl]#scp /etc/kubeasz/clusters/k8s-cluster1/ssl/ca-config.json master1:/data/valero
+
+[root@master-01 velero]#cfssl gencert -ca=/etc/kubernetes/ssl/ca.pem -ca-key=/etc/kubernetes/ssl/ca-key.pem -config=./ca-config.json -profile=kubernetes ./awsuser-csr.json |cfssljson -bare awsuser
+2025/04/22 19:57:35 [INFO] generate received request
+2025/04/22 19:57:35 [INFO] received CSR
+2025/04/22 19:57:35 [INFO] generating key: rsa-2048
+2025/04/22 19:57:36 [INFO] encoded CSR
+2025/04/22 19:57:36 [INFO] signed certificate with serial number 486780908032241703022092215985611021871723081777
+2025/04/22 19:57:36 [WARNING] This certificate lacks a "hosts" field. This makes it unsuitable for
+websites. For more information see the Baseline Requirements for the Issuance and Management
+of Publicly-Trusted Certificates, v.1.1.6, from the CA/Browser Forum (https://cabforum.org);
+specifically, section 10.2.3 ("Information Requirements").
+
+[root@master-01 velero]#ll
+总计 40264
+drwxr-xr-x 2 root root     4096  4月 22 19:57 ./
+drwxr-xr-x 3 root root     4096  4月 22 19:55 ../
+-rw-r--r-- 1 root root      997  4月 22 19:57 awsuser.csr
+-rw-r--r-- 1 root root      220  4月 22 18:05 awsuser-csr.json
+-rw------- 1 root root     1675  4月 22 19:57 awsuser-key.pem     # 私钥
+-rw-r--r-- 1 root root     1391  4月 22 19:57 awsuser.pem         # 证书
+-rw-r--r-- 1 root root      459  4月 22 19:55 ca-config.json
+-rw-r--r-- 1 root root 16659824 12月  7  2021 cfssl
+-rw-r--r-- 1 root root 13502544 12月  7  2021 cfssl-certinfo
+-rw-r--r-- 1 root root 11029744 12月  7  2021 cfssljson
+-rw-r--r-- 1 root root       69  4月 22 17:58 velero-auth.txt
+
+# 分发证书到api-server证书路径
+[root@master-01 velero]#cp awsuser-key.pem /etc/kubernetes/ssl/
+[root@master-01 velero]#cp awsuser.pem /etc/kubernetes/ssl/
+
+# 设定变量（方便修改）
+KUBECONFIG_FILE=./awsuser.kubeconfig
+APISERVER=https://10.0.0.30:6443
+CA_FILE=/etc/kubernetes/ssl/ca.pem
+CERT_FILE=/etc/kubernetes/ssl/awsuser.pem
+KEY_FILE=/etc/kubernetes/ssl/awsuser-key.pem
+USER_NAME=awsuser
+NAMESPACE=velero-system
+
+# 设置 cluster
+kubectl config set-cluster cluster1 \
+  --server=${APISERVER} \
+  --certificate-authority=${CA_FILE} \
+  --embed-certs=true \
+  --kubeconfig=${KUBECONFIG_FILE}
+
+# 设置 user
+kubectl config set-credentials ${USER_NAME} \
+  --client-certificate=${CERT_FILE} \
+  --client-key=${KEY_FILE} \
+  --embed-certs=true \
+  --kubeconfig=${KUBECONFIG_FILE}
+
+# 设置 context
+kubectl config set-context context-${USER_NAME} \
+  --cluster=cluster1 \
+  --user=${USER_NAME} \
+  --namespace=${NAMESPACE} \
+  --kubeconfig=${KUBECONFIG_FILE}
+
+# 使用 context
+kubectl config use-context context-${USER_NAME} --kubeconfig=${KUBECONFIG_FILE}
+
+# k8s集群中创建awsuser账户
+[root@master-01 velero]#kubectl create clusterrolebinding awsuser --clusterrole=admin --user=awsuser
+clusterrolebinding.rbac.authorization.k8s.io/awsuser created
+
+# 创建名称空间
+[root@master-01 velero]#kubectl create ns velero-system
+namespace/velero-system created
+
+# 创建sa
+[root@master-01 velero]#kubectl create sa --namespace velero-system awsuser
+serviceaccount/awsuser created
+
+# 测试创建的kube-config文件,awsuser.kubeconfig权限是否ok
+[root@master velero]#kubectl --kubeconfig=./awsuser.kubeconfig get nodes
+NAME        STATUS                     ROLES    AGE   VERSION
+master      Ready,SchedulingDisabled   master   45h   v1.31.2
+worker-01   Ready                      node     45h   v1.31.2
+worker-02   Ready                      node     45h   v1.31.2
+worker-03   Ready                      node     45h   v1.31.2
+
+
+# 执行安装
+[root@master velero]#velero install \
+  --kubeconfig ./awsuser.kubeconfig \
+  --provider aws \
+  --plugins velero/velero-plugin-for-aws:v1.5.5 \
+  --bucket velero \
+  --secret-file ./velero-auth.txt \
+  --use-volume-snapshots=false \
+  --namespace velero-system \
+  --backup-location-config region=minio,s3ForcePathStyle="true",s3Url=http://10.0.0.30:9000
+
+# 卸载velero
+# velero uninstall --kubeconfig ./awsuser.kubeconfig --namespace velero-system
+
+
+# 查看
+[root@master velero]#kubectl get pod -n velero-system 
+NAME                      READY   STATUS    RESTARTS   AGE
+velero-76d4fcf7dc-w9ccj   1/1     Running   0          7s
+
+# 测试
+[root@master velero]#velero --namespace velero-system backup-location get
+NAME      PROVIDER   BUCKET/PREFIX   PHASE       LAST VALIDATED                  ACCESS MODE   DEFAULT
+default   aws        velero          Available   2025-04-28 16:54:46 +0800 CST   ReadWrite     true
+```
+
+### 备份
+
+```bash
+# 生成当前时间戳（格式：年月日时分秒），用于唯一标识备份
+DATE=$(date +%Y%m%d%H%M%S)
+
+# 执行Velero备份命令
+velero \
+  --kubeconfig=./awsuser.kubeconfig \      # 指定Kubernetes配置文件路径（用于多集群环境）
+  --namespace=velero-system \              # 指定Velero控制器所在的命名空间
+  backup create default-backup-${DATE} \   # 创建备份，名称包含时间戳避免重复
+  --include-cluster-resources=true \      # 备份集群级资源（如StorageClass、Nodes等）
+  --include-namespaces='*'                # 备份所有命名空间（*需加引号防止shell扩展）
+```
+
+### 查看
+
+```bash
+velero --kubeconfig=./awsuser.kubeconfig \
+  --namespace=velero-system \
+  backup describe default-backup-20250428172211 \
+  --details
+```
+
+### 恢复
+
+#### 1. 基本恢复命令（恢复到原命名空间）
+
+```bash
+velero restore create RESTORE_NAME \
+  --from-backup BACKUP_NAME \
+  --namespace velero-system \
+  --kubeconfig=./awsuser.kubeconfig
+```
+
+#### 2. 常用恢复选项
+
+##### 恢复到原命名空间（默认行为）
+
+```bash
+velero restore create restore-$(date +%Y%m%d%H%M%S) \
+  --from-backup default-backup-20250428172211 \
+  --namespace velero-system \
+  --kubeconfig=./awsuser.kubeconfig
+```
+
+##### 恢复到新命名空间（命名空间映射）
+
+```bash
+velero restore create restore-$(date +%Y%m%d%H%M%S) \
+  --from-backup default-backup-20250428172211 \
+  --namespace-mappings original-ns:new-ns \
+  --namespace velero-system \
+  --kubeconfig=./awsuser.kubeconfig
+```
+
+示例（将 `gitlab-system` 恢复到 `gitlab-restored`）：
+
+```bash
+velero restore create gitlab-restore-$(date +%Y%m%d%H%M%S) \
+  --from-backup default-backup-20250428172211 \
+  --namespace-mappings gitlab-system:gitlab-restored \
+  --namespace velero-system \
+  --kubeconfig=./awsuser.kubeconfig
+```
+
+##### 仅恢复特定资源类型
+
+```bash
+velero restore create selective-restore \
+  --from-backup default-backup-20250428172211 \
+  --include-resources deployments,services \
+  --namespace velero-system \
+  --kubeconfig=./awsuser.kubeconfig
+```
+
+#### 3. 监控恢复进度
+
+```bash
+# 查看所有恢复任务
+velero restore get --namespace velero-system --kubeconfig=./awsuser.kubeconfig
+
+# 查看特定恢复详情
+velero restore describe RESTORE_NAME --namespace velero-system --kubeconfig=./awsuser.kubeconfig
+
+# 查看恢复日志
+velero restore logs RESTORE_NAME --namespace velero-system --kubeconfig=./awsuser.kubeconfig
+```
+
+#### 4. 恢复完成后的验证
+
+```bash
+# 检查恢复的资源
+kubectl get all -n RESTORED_NAMESPACE
+
+# 检查 PersistentVolumeClaims
+kubectl get pvc -n RESTORED_NAMESPACE
+
+# 检查 Pod 状态
+kubectl get pods -n RESTORED_NAMESPACE
+```
+
+#### 5. 高级恢复选项
+
+##### 排除某些资源
+
+```bash
+velero restore create filtered-restore \
+  --from-backup default-backup-20250428172211 \
+  --exclude-resources events,secrets \
+  --namespace velero-system \
+  --kubeconfig=./awsuser.kubeconfig
+```
+
+##### 恢复时修改标签
+
+```bash
+velero restore create labeled-restore \
+  --from-backup default-backup-20250428172211 \
+  --selector app=my-app \
+  --namespace velero-system \
+  --kubeconfig=./awsuser.kubeconfig
+```
+
+
+
+## ETCD
+
+### 备份
+
+```bash
+mkdir /data/backup
+DATE=`date +%Y-%m-%d_%H-%M-%S`
+ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  snapshot save /backup/$DATE.db
+```
+
+### 验证
+
+```bash
+ETCDCTL_API=3 etcdctl --write-out=table snapshot status /backup/2025-05-06_16-15-01.db
+```
+
+### 恢复
+
+#### **标准操作顺序（3个master）**
+
+| 节点           | 操作                                                         |
+| -------------- | ------------------------------------------------------------ |
+| master01       | `systemctl stop kubelet`                                     |
+| master02       | `systemctl stop kubelet`                                     |
+| master03       | `systemctl stop kubelet`                                     |
+| **全部停止后** | 在 3 个节点都执行 etcdctl snapshot restore（一样的快照文件） |
+
+
+```bash
+cp -a /var/lib/etcd /var/lib/etcd.bak
+rm -rf /var/lib/etcd
+
+ETCDCTL_API=3 etcdctl snapshot restore /backup/2025-05-06_16-15-01.db \
+  --data-dir=/var/lib/etcd \
+  --initial-cluster=default=https://127.0.0.1:2380 \
+  --initial-advertise-peer-urls=https://127.0.0.1:2380 \
+  --skip-hash-check
+```
+
+| 节点           | 操作                                                         |
+| -------------- | ------------------------------------------------------------ |
+| master01       | `systemctl start kubelet`                                    |
+| master02       | `systemctl start kubelet`                                    |
+| master03       | `systemctl start kubelet`                                    |
+
+------
+
+#### **特别重要**
+
+> **恢复时，3个节点的数据目录 /var/lib/etcd 都必须用同一个快照恢复出来！**
+>  不能只恢复1个节点，其他两个节点不恢复
+>  否则 etcd 集群 raft 会数据不一致，启动直接崩溃
+
+------
+
+#### **总结**
+
+✅ **3个 master 节点 kubelet 都要停止**
+ ✅ **3个节点 etcd 都要恢复同一个快照**
+ ✅ **都恢复完，再同时启动 kubelet**
+
+
 
