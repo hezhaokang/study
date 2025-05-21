@@ -52,7 +52,7 @@ CAS
 
  ![image-20250409105429920](kubernetes/image-20250409105429920.png)
 
-###  OpenEBS
+##  OpenEBS
 
 #### 数据引擎（Data Engines）
 
@@ -97,7 +97,7 @@ CAS
 整体架构逻辑
 
 ```
-mathematica复制编辑Stateful Workloads（有状态应用，例如 MySQL、PostgreSQL、Kafka 等）
+Stateful Workloads（有状态应用，例如 MySQL、PostgreSQL、Kafka 等）
         ↓
 Kubernetes Storage Control Plane（存储控制器：SC/PVC/PV/CSI）
         ↓
@@ -627,7 +627,7 @@ nfs-pvc                      Bound    pvc-85db1034-fc45-44f1-8870-1e81fc99544b  
 
 
 
-###  statefulSet
+##  statefulSet
 
 ```powershell
 StatefulSet
@@ -1095,7 +1095,7 @@ kubectl apply ./ -n mysql
 
  
 
-###  Operator
+##  Operator
 
 
 
@@ -1251,7 +1251,6 @@ root@client-11378 /# curl -u "elastic:$PASSWORD" -k https://myes-es-http.elastic
 ##### **部署Filebeat**
 
 ```yaml
-
 # 定义 Filebeat 自定义资源（CRD）
 apiVersion: beat.k8s.elastic.co/v1beta1
 kind: Beat
@@ -5335,22 +5334,7 @@ Extended resources
 ```
 
 ```powershell
-Pod QoS的类别
-	Guaranteed
-		CPU和Memory都要满足条件:requests==limits
-		其它资源类型不作限制
-	Burstable
-		CPU和Memory其一满足条件:requests!=limits
-		该类别的适用条件最为宽泛
-	BestEffort
-		所有资源上都没有设定requests和limits
-调度器考虑的要素
-	仅会根据requests的值进行调度
-	预选算法
-		PodFitsResources
-	优选算法
-		LeastRequestedPriority/MostRequestedPriority
-		BalancedResourceAlocation
+ 
 ```
 
 ![image-20250420163052563](kubernetes/image-20250420163052563.png)
@@ -5897,6 +5881,141 @@ root@master01:~# kubectl get nodes node1.kang.com -o jsonpath={.spec.podCIDR}
 
 ###  Calico
 
+```powershell
+ProjectCalico
+	三层的虚拟网络方案
+	它把每个节点都当作虚拟路由器(vRouter)，把个节点上的Pod都当作是“节点路由器”后的一个终端设备并为其分配一个IP地址
+	各节点路由器通过BGP(Border Gateway Protocol)协议学习生成路由规则从而实现不同节点上Pod间的互联互通
+
+Calico在每一个计算节点利用Linux内核实现了一高效的vRouter(虚拟路由器)进行报文转发，而每个vRouter通过BGP协议负责把自身所属的节点上行的Pod资源的IP地址信息基于节点的agent程序网络内传播(Felix)直接由vRouter生成路由规则问整个Calico
+
+网络模式
+	纯隧道：
+		ipip
+		vxlan
+	纯三层：
+		bgp
+	混合模式
+		bgp + ipip
+		bgp + vxlan
+	
+也支持eBGP机制（cilium）
+```
+
+```powershell
+Calico的工作机制
+	Calico把Kuberetes集群环境中的每个节点上的Pod所组成的网络视为一个自治系统，各节点也就是各自治系统的边界网关，它们彼此间通过BGP协议交换路由信息生成路由规则
+	考虑到并非所有网络都能支持BGP，以及BGP路由模型要求所有节点必须要位于同一个二层网络，Calico还支持基于IPIP和VXLAN的叠加网络模型
+	类似于Panpe!在VXLAN后端中启用DirectRoutine时的网络模型，Caico也支持混合使用路由和叠加网络模型BGP路由模型用于二层网络的高性能通信，IPI或VXLAN用于跨子网的节点间(Cross-Subnet)报文转发
+```
+
+![image-20250516140803957](kubernetes/image-20250516140803957.png)
+
+![image-20250512144236942](kubernetes/image-20250512144236942.png)
+
+```powershell
+概括来说，Calico主要由Felix、Orchestrator Plugin、etcd、BIRD和BGP Router Reflector等组件组成
+	Felix:Calico Agent，运行于每个节点，主要负责维护虚拟接口设备和路由信息	Orchestrator Plugin:编排系统(例如Kubernetes、OpenStack等)用于将Calico整合进行系统中的插件，例如Kubernetes的CNI
+	etcd:持久存储Calico数据的存储管理系统
+	BIRD:负责分发路由信息的BGP客户端
+	BGPRoute Refector:BGP路由反射器，可选组件，用于较大规模的网络场景
+```
+
+![image-20250512144918501](kubernetes/image-20250512144918501.png)
+
+
+
+```powershell
+calico-node
+	运行于集群中的每个节点，负责路由编程(Felix)和路由分发(BIRD)
+	Felix:负责生成路由规则和iptables规则，前者用于完成Pod报文路由，后者用于支撑NetworkPolicy
+	BIRD:读取并分发由同一节点上的Felix生成的路由规则，支持多种分发拓扑
+calico-kube-controller
+	负责监视Kubernetes对象中(包括NetworkPolicy、Pod、Namespace、ServiceAccount和Node等)会影响到路由的相关变更
+	将变更带来的影响生成Calico配置，并保存于Calico Datastorer
+```
+
+![image-20250516140940624](kubernetes/image-20250516140940624.png)
+
+```powershell
+Typha
+	各calico-node实例同Calico Datastore通信的中间层，由其负责将Calico Datastore中生成的更改信息分发给名calico-node，以减轻50个节点以上规模集群中的Calico Datastore的负载
+	具有缓存功能，且能够通过删除重复事件，降低系统负载
+Calico Datastore
+	通用术语，是指存储的Calico配置、路由、策略及其它信息，它们通常表现为Calico CRD资源对象
+	支持的CRD包括BGPConfiguration、BGPFilter、BGPPeer、BlockAffinity、CalicoNodeStatus、ClusterInformation、FelixConfiguration、GlobalNetworkPolicy、GlobalNetworkSet、HostEndpoint、IPAMBlock、IPAMConfig.IPAMHandle、IPPool、IPReservation、NetworkPolicy、NetworkSet和KubeControllersConfiguration等
+	几个常用的CRD功能说明
+		BGPConfiguration:全局BGP配置，用于设定AS(自治系统)编号、node mesh，以及用于通告ClusterIP的设置
+		FelixConfiguration:Felix相关的低级别配置，包括iptables、MIU和路由协议等
+		GlobalNetworkPolicy:全局网络策略，生效于整个集群级别;
+		GlobalNetworkSet:全局网络集，是指可由GobalNetworkPolicy引用的外部网络IP列表或CIDR列表;
+		IPPoo!:IP地址池及相关选项，包括要使用的路由协议(IPIP、VXLAN或Native);一个集群支持使用多个Pool;
+```
+
+```powershell
+Calico数据存储模式：Kubernetes
+在几乎所有情况下，都建议使用Kubernetes数据存储而非独立的ectd
+	数据通过CRD存储于kube-apiserver
+	对calico资源的访问可由Kubernetes RBAC控制
+	但成百上千个Felix实例同时与kube-apiserver交互，会带来负责影响，因而必须要使用typha中间层
+```
+
+![image-20250516141314670](kubernetes/image-20250516141314670.png)
+
+```powershell
+Calico数据存储模式：etcd
+将Calico数据存储于独立的etcd中
+	可减轻kube-apiserver的压力，但也会引入不必要的复杂性和安全风险
+	切不可直接使用Kubernetes etcd作为Calico的数据存储
+```
+
+![image-20250516141514062](kubernetes/image-20250516141514062.png)
+
+
+
+```powershell
+Calico下的Pod网络接口
+Calico网络插件如何为Pod配置网络接口
+	为每个Pod创建一组veth pair，一端注入Pod网络名称空间，另一端驻留在宿主机上
+		Pod内的一端，通常名称格式为“etho@ifN”，其的N是驻留在宿主机上的另一端的ip link编号
+		驻留宿主机的一端，名称格式为“caliXXXXXXXXXXX@ifN，其中的11位X是经由函数计算生成，而N则是注入到Pod网络名称空间中的对端的ip link编号
+	Pod网络名称空间中，会生成独特的默认路由，将网关指向169.254.1.1
+```
+
+![image-20250516152857736](kubernetes/image-20250516152857736.png)
+
+```powershell
+	宿主机为每个cali接口都开启了ARP Proxy功能，从而让宿主机扮演网关设备，并以自己的MAC地址代为应答对端Pod中发来的所有ARP请求
+		ARP Proxy的关键配置： /proc/sys/net/ipv4/conf/DEV/proxy_arp
+	同一节点上的Pod间通信依赖于为每个Pod单独配置的路由规则
+	不同节点上的Pod间通信，则由Calico的路由模式决定
+```
+
+![image-20250516152915338](kubernetes/image-20250516152915338.png)
+
+![image-20250516142518162](kubernetes/image-20250516142518162.png)
+
+```powershell
+Calico支持多种路由模式
+	Native：原生路由五隧道封装
+	IP-in-IP：IPIP隧道模式，开销较小的隧道协议
+	VXLAN：VXLAN隧道模式
+```
+
+![image-20250521152949800](kubernetes/image-20250521152949800.png)
+
+![image-20250521153019644](kubernetes/image-20250521153019644.png)
+
+![image-20250521195039847](kubernetes/image-20250521195039847.png)
+
+![image-20250521195615899](kubernetes/image-20250521195615899.png)
+
+![image-20250521195833917](kubernetes/image-20250521195833917.png)
+
+
+
+
+
 
 
 
@@ -6270,4 +6389,471 @@ ETCDCTL_API=3 etcdctl snapshot restore /backup/2025-05-06_16-15-01.db \
  ✅ **都恢复完，再同时启动 kubelet**
 
 
+
+## 集群管理
+
+### 集群重置
+
+#### **主节点**
+
+```bash
+kubeadm reset -f
+sudo iptables -F && sudo iptables -t nat -F && sudo iptables -t mangle -F && sudo iptables -X
+sudo ipvsadm --clear
+sudo systemctl restart containerd  # 或者 docker，取决于你的容器运行时
+sudo rm -rf ~/.kube
+sudo rm -rf /etc/cni/net.d /var/lib/cni/ /var/lib/kubelet /var/lib/etcd /etc/kubernetes
+```
+
+#### **node节点**
+
+```bash
+sudo kubeadm reset -f
+sudo iptables -F && sudo iptables -t nat -F && sudo iptables -t mangle -F && sudo iptables -X
+sudo ipvsadm --clear
+sudo systemctl restart containerd  # 或 docker
+sudo rm -rf /etc/cni/net.d /var/lib/cni/ /var/lib/kubelet /etc/kubernetes
+```
+
+
+
+### 添加节点
+
+#### **添加node**
+
+使用 `kubeadm` 搭建的 Kubernetes 集群中，要添加新的 node 节点（工作节点），可以按照以下步骤进行，分为 **主节点操作** 和 **工作节点操作** 两部分。
+
+------
+
+✅ 一、前提条件
+
+- 已有 kubeadm 搭建好的 Kubernetes 集群（主节点正常运行）
+- 新增节点为 Linux 系统，已安装：
+  - kubeadm、kubelet、kubectl（kubelet 最重要）
+  - Docker 或 containerd
+- 新节点的主机名唯一，能通过网络访问主节点
+- 关闭防火墙、swap，并启用 `ip_forward` 等基础设置（如下）
+
+📌 系统参数建议
+
+```
+# 关闭swap
+swapoff -a && sed -i '/swap/d' /etc/fstab
+
+# 修改内核参数
+cat <<EOF | tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward = 1
+EOF
+
+sysctl --system
+```
+
+------
+
+🚩 二、主节点操作（获取 `join` 命令）
+
+✅ 1. 在主节点生成 join 命令（带 token）
+
+```
+kubeadm token create --print-join-command
+```
+
+输出示例：
+
+```
+kubeadm join 192.168.0.100:6443 --token abcdef.0123456789abcdef \
+    --discovery-token-ca-cert-hash sha256:xxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+> ⚠️ 默认 token 有效期是 24 小时，超时需重新生成。
+
+------
+
+🖥️ 三、Node 节点操作（执行 join 命令）
+
+✅ 1. 将 `join` 命令复制到新节点执行
+
+```
+bash复制编辑kubeadm join 192.168.0.100:6443 --token abcdef.0123456789abcdef \
+    --discovery-token-ca-cert-hash sha256:xxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+执行成功后，node 会加入到集群。
+
+------
+
+📡 四、验证节点是否加入成功（在主节点）
+
+```
+kubectl get nodes
+```
+
+输出类似：
+
+```
+NAME         STATUS   ROLES    AGE   VERSION
+master01     Ready    control-plane   5d    v1.28.0
+worker01     Ready    <none>          1m    v1.28.0
+```
+
+------
+
+🧩 五、常见问题排查
+
+| 问题                                            | 原因                 | 解决方法                                              |
+| ----------------------------------------------- | -------------------- | ----------------------------------------------------- |
+| `x509: certificate signed by unknown authority` | 主节点证书 hash 不对 | 确保使用 `--discovery-token-ca-cert-hash`             |
+| `connection refused`                            | 网络不通、防火墙     | 关闭防火墙，主节点监听地址应为 `0.0.0.0`              |
+| `swap not disabled`                             | 未关闭 swap          | `swapoff -a` 并永久关闭                               |
+| `token expired`                                 | token 过期           | 重新生成：`kubeadm token create --print-join-command` |
+
+------
+
+✅ 六、附加知识：join 命令补充
+
+可以使用 `--cri-socket` 指定 containerd 或 Docker：
+
+```
+--cri-socket /run/containerd/containerd.sock
+```
+
+#### 添加master节点
+
+在使用 `kubeadm` 搭建的 Kubernetes 集群中，**添加一个新的 master 节点（控制平面节点）** 是实现高可用集群的关键步骤。与添加普通 node 节点不同，添加 master 节点涉及证书复制、etcd 通信等额外操作。
+
+------
+
+✅ 一、集群添加 master 节点的前提条件
+
+| 条件                                                         | 说明 |
+| ------------------------------------------------------------ | ---- |
+| 已有一个工作正常的 kubeadm 安装的 master 节点                |      |
+| 所有 master 节点之间网络互通                                 |      |
+| 使用外部或自建的高可用组件（如 VIP + keepalived 或负载均衡器） |      |
+| 新节点已安装 kubeadm、kubelet、kubelet，并关闭 swap、防火墙  |      |
+
+------
+
+🧱 二、添加 master 的核心思路
+
+主节点之间是对等的，需要：
+
+1. **复制证书和 kubeadm 配置**
+2. **使用 `kubeadm join` 加 `--control-plane` 加入控制面**
+3. **配置 HA（如 VIP / LB）后使用统一的 API Server 地址**
+
+------
+
+🔧 三、操作步骤详解
+
+🌟 1. 主节点生成加入命令（含 control-plane）
+
+在已有主节点执行：
+
+```
+kubeadm token create --print-join-command --ttl 0
+```
+
+**但要添加 master，需加 `--control-plane` 和证书 hash 文件路径**
+
+------
+
+🛠 2. 拷贝证书到新 master 节点
+
+从已有 master 节点拷贝下列目录到新节点（假设为 `192.168.0.11`）：
+
+```
+scp -r /etc/kubernetes/pki root@192.168.0.11:/etc/kubernetes/
+scp /etc/kubernetes/admin.conf root@192.168.0.11:/etc/kubernetes/
+```
+
+> ⚠️ `pki/etcd` 目录一般不需要复制，除非你使用了自建 etcd 集群；如果是 `kubeadm` 管理的 `etcd`，默认支持复制。
+
+------
+
+🧪 3. 在新 master 上执行 join 命令
+
+```
+kubeadm join <API_SERVER>:6443 \
+  --token <token> \
+  --discovery-token-ca-cert-hash sha256:<hash> \
+  --control-plane \
+  --certificate-key <证书密钥>
+```
+
+- `<API_SERVER>`：可以是主节点 IP，也可以是 VIP 地址（推荐）
+- `<token>` 和 `<hash>` 来自上一步 `--print-join-command`
+- `<certificate-key>` 是密钥，用于复制控制平面所需证书（下面介绍如何获取）
+
+------
+
+🔐 4. 获取 certificate-key（在主节点执行）
+
+```
+kubeadm init phase upload-certs --upload-certs
+```
+
+输出类似：
+
+```
+Certificate key: 89c3519cbf7b2a1d8a2cfdd214d7fca3e62153b0b6c4010e5ebbb345b4d4c574
+```
+
+此 key 有效期为 2 小时，用于新 master 安装控制面时加密解密 pki 证书。
+
+------
+
+🛰️ 四、验证新 master 节点是否添加成功
+
+在任一 master 节点执行：
+
+```
+kubectl get nodes
+```
+
+应该能看到新加入的 master 节点：
+
+```
+NAME         STATUS   ROLES           AGE   VERSION
+master-1     Ready    control-plane   5d    v1.28.0
+master-2     Ready    control-plane   2m    v1.28.0
+```
+
+------
+
+🔁 五、可选：为新 master 配置 kubectl
+
+```
+mkdir -p $HOME/.kube
+cp /etc/kubernetes/admin.conf $HOME/.kube/config
+chown $(id -u):$(id -g) $HOME/.kube/config
+```
+
+------
+
+💡 六、高可用建议
+
+| HA 方案          | 描述                                                |
+| ---------------- | --------------------------------------------------- |
+| VIP + keepalived | 多个 master，使用 VIP 漂移方式实现主节点高可用      |
+| LB + DNS         | 使用 Nginx、HAProxy 或 F5 做负载均衡                |
+| etcd 高可用      | 推荐使用外部 etcd 集群或使用 kubeadm 多节点模式部署 |
+
+------
+
+📘 七、总结一句话流程
+
+> **先在主节点生成 token 和 certificate key，然后拷贝必要证书，最后在新 master 上执行带 `--control-plane` 的 join 命令。**
+
+
+
+### 删除节点
+
+在 Kubernetes 中删除一个节点（Node）需要分为两部分操作：**从集群中删除节点记录** 和 **从实际机器上停用组件（如 kubelet）**。
+
+------
+
+✅ 一、删除节点的标准操作流程
+
+🧩 步骤 1：在主节点上驱逐节点上的 Pod
+
+防止业务受影响：
+
+```
+kubectl drain <节点名> --delete-emptydir-data --force --ignore-daemonsets
+```
+
+- `--delete-emptydir-data`：删除使用了 `emptyDir` 卷的 Pod
+- `--force`：强制驱逐非管理的 Pod（如静态 Pod）
+- `--ignore-daemonsets`：忽略 DaemonSet 的 Pod（因为它们不会自动迁移）
+
+示例：
+
+```
+kubectl drain node-1 --delete-emptydir-data --force --ignore-daemonsets
+```
+
+------
+
+🧹 步骤 2：将节点从集群中删除
+
+```
+kubectl delete node <节点名>
+```
+
+示例：
+
+```
+kubectl delete node node-1
+```
+
+> 此时该节点从 `kubectl get nodes` 中消失，集群视角中已删除。
+
+------
+
+⚙️ 二、在目标节点上做清理操作
+
+✅ 停止并禁用 kubelet
+
+```
+systemctl stop kubelet
+systemctl disable kubelet
+```
+
+✅ 可选：卸载 kubeadm/kubelet/kubectl
+
+```
+apt remove kubeadm kubelet kubectl   # Ubuntu/Debian
+yum remove kubeadm kubelet kubectl   # RHEL/CentOS/Rocky
+```
+
+也可选择保留组件，但关闭服务即可。
+
+------
+
+🧊 三、节点删除后还能恢复吗？
+
+- 如果是误删，只要原节点没有重装系统或变动太大，可以通过重新 `kubeadm join` 加回集群；
+- 否则，需要重新初始化节点并加入集群。
+
+------
+
+🧠 四、面试回答模板
+
+> 在 Kubernetes 中删除节点，我会先使用 `kubectl drain` 安全地驱逐 Pod，确保业务迁移后再执行 `kubectl delete node` 从集群中移除节点记录。然后登录该节点，关闭 kubelet 服务，并清理相关组件。整个过程兼顾安全与稳定，避免影响生产环境。
+
+
+
+### kubeasz集群节点伸缩管理
+
+集群管理主要是添加master、添加node、删除master与删除node等节点管理及监控
+
+```bash
+# 当前集群状态
+[root@master-01 ~]#kubectl get nodes
+NAME        STATUS                     ROLES    AGE    VERSION
+master-01   Ready,SchedulingDisabled   master   128m   v1.30.1
+master-02   Ready,SchedulingDisabled   master   128m   v1.30.1
+worker-01   Ready                      node     120m   v1.30.1
+worker-02   Ready                      node     120m   v1.30.1
+
+[root@haproxy1 kubeasz]#./ezctl --help
+Usage: ezctl COMMAND [args]
+-------------------------------------------------------------------------------------
+Cluster setups:
+    list		             to list all of the managed clusters
+    checkout    <cluster>            to switch default kubeconfig of the cluster
+    new         <cluster>            to start a new k8s deploy with name 'cluster'
+    setup       <cluster>  <step>    to setup a cluster, also supporting a step-by-step way
+    start       <cluster>            to start all of the k8s services stopped by 'ezctl stop'
+    stop        <cluster>            to stop all of the k8s services temporarily
+    upgrade     <cluster>            to upgrade the k8s cluster
+    destroy     <cluster>            to destroy the k8s cluster
+    backup      <cluster>            to backup the cluster state (etcd snapshot)
+    restore     <cluster>            to restore the cluster state from backups
+    start-aio		             to quickly setup an all-in-one cluster with default settings
+
+Cluster ops:
+    add-etcd    <cluster>  <ip>      to add a etcd-node to the etcd cluster
+    add-master  <cluster>  <ip>      to add a master node to the k8s cluster
+    add-node    <cluster>  <ip>      to add a work node to the k8s cluster
+    del-etcd    <cluster>  <ip>      to delete a etcd-node from the etcd cluster
+    del-master  <cluster>  <ip>      to delete a master node from the k8s cluster
+    del-node    <cluster>  <ip>      to delete a work node from the k8s cluster
+
+Extra operation:
+    kca-renew   <cluster>            to force renew CA certs and all the other certs (with caution)
+    kcfg-adm    <cluster>  <args>    to manage client kubeconfig of the k8s cluster
+
+Use "ezctl help <command>" for more information about a given command.
+
+```
+
+
+
+#### 添加Node节点
+
+```bash
+# 1. 打通新加入的Node节点和集群内其他节点的ssh
+
+# 2. 在集群部署服务器，即kubeasz所在服务器，比如新加入node的ip是10.0.0.213
+[root@haproxy1 kubeasz]#./ezctl add-node k8s-cluster1 10.0.0.213
+
+# 查看
+[root@master-01 ~]#kubectl get node
+NAME             STATUS                     ROLES    AGE    VERSION
+k8s-10-0-0-213   Ready                      node     54s    v1.30.1
+master-01        Ready,SchedulingDisabled   master   144m   v1.30.1
+master-02        Ready,SchedulingDisabled   master   144m   v1.30.1
+worker-01        Ready                      node     137m   v1.30.1
+worker-02        Ready                      node     137m   v1.30.1
+```
+
+
+
+#### 添加master节点
+
+```bash
+# 1. 打通新加入的master节点和集群内其他节点的ssh
+
+# 2. 在集群部署服务器，即kubeasz所在服务器，比如新加入master的ip是10.0.0.203
+[root@haproxy1 kubeasz]#./ezctl add-master k8s-cluster1 10.0.0.203
+
+# 查看
+[root@master-01 ~]#kubectl get node
+NAME             STATUS                     ROLES    AGE     VERSION
+k8s-10-0-0-203   Ready,SchedulingDisabled   master   2m36s   v1.30.1
+k8s-10-0-0-213   Ready                      node     19m     v1.30.1
+master-01        Ready,SchedulingDisabled   master   163m    v1.30.1
+master-02        Ready,SchedulingDisabled   master   163m    v1.30.1
+worker-01        Ready                      node     155m    v1.30.1
+worker-02        Ready                      node     155m    v1.30.1
+```
+
+
+
+#### 删除node节点
+
+```bash
+# 本质上是忽略daemonset,强制drain驱逐node上的pod，再踢出node节点
+# --delete-local-data --ignore-daemonsets --force
+# --delete-emptydir-data --ignore-daemonsets --force
+
+# 注意！！！，该操作不建议在业务高峰期执行
+
+# 执行删除指定节点
+[root@haproxy1 kubeasz]#./ezctl del-node k8s-cluster1 10.0.0.213
+
+# 查看
+[root@master-01 ~]#kubectl get node
+NAME             STATUS                     ROLES    AGE    VERSION
+k8s-10-0-0-203   Ready,SchedulingDisabled   master   10m    v1.30.1
+master-01        Ready,SchedulingDisabled   master   170m   v1.30.1
+master-02        Ready,SchedulingDisabled   master   170m   v1.30.1
+worker-01        Ready                      node     163m   v1.30.1
+worker-02        Ready                      node     163m   v1.30.1
+
+# 删除后，重启被删除的node节点，以清理缓存信息
+# 但是！！！，此时可能会出现一个问题，就是删除的节点，无法直接再加入集群，原因是hosts文件内的该主机名没有被删除，删除后重新添加就可以了
+[root@haproxy1 kubeasz]#vim clusters/k8s-cluster1/hosts
+[kube_node]
+10.0.0.211 k8s_nodename='worker-01'
+10.0.0.212 k8s_nodename='worker-02'
+# ？？？ 原10.0.0.213，如果这里没有仍然后痕迹，可能会导致无法加入集群
+
+# 将10.0.0.213再次加入集群
+[root@haproxy1 kubeasz]#./ezctl add-node k8s-cluster1 10.0.0.213
+
+# 查看
+[root@master-01 ~]#kubectl get node
+NAME             STATUS                     ROLES    AGE     VERSION
+k8s-10-0-0-203   Ready,SchedulingDisabled   master   36m     v1.30.1
+k8s-10-0-0-213   Ready                      node     17m     v1.30.1
+master-01        Ready,SchedulingDisabled   master   3h17m   v1.30.1
+master-02        Ready,SchedulingDisabled   master   3h17m   v1.30.1
+worker-01        Ready                      node     3h10m   v1.30.1
+worker-02        Ready                      node     3h10m   v1.30.1
+```
 

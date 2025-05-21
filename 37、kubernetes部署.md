@@ -2383,6 +2383,12 @@ sysctl net.bridge.bridge-nf-call-ip6tables
 sysctl net.ipv4.ip_forward
 ```
 
+| 场景                                                 | 依赖参数                                                |
+| ---------------------------------------------------- | ------------------------------------------------------- |
+| Pod 之间跨主机通信 (Flannel, Calico 等 CNI 网络插件) | **ip_forward = 1** (主机必须能转发流量)                 |
+| Service 访问 Pod (iptables DNAT / SNAT 转换)         | **bridge-nf-call-iptables = 1** (桥接流量要走 iptables) |
+| 安全策略 (NetworkPolicy) 生效                        | **bridge-nf-call-iptables = 1** (过滤流量)              |
+
 #### **所有主机安装** **Containerd**
 
 ```bash
@@ -3497,7 +3503,7 @@ kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/
 
 主节点
 
-```
+```bash
 kubeadm reset -f
 sudo iptables -F && sudo iptables -t nat -F && sudo iptables -t mangle -F && sudo iptables -X
 sudo ipvsadm --clear
@@ -3508,7 +3514,7 @@ sudo rm -rf /etc/cni/net.d /var/lib/cni/ /var/lib/kubelet /var/lib/etcd /etc/kub
 
 node节点
 
-```
+```bash
 sudo kubeadm reset -f
 sudo iptables -F && sudo iptables -t nat -F && sudo iptables -t mangle -F && sudo iptables -X
 sudo ipvsadm --clear

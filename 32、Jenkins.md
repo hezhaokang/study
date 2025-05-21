@@ -4091,7 +4091,7 @@ sonar.sourceEncoding=UTF-8
 sonar.login=squ_4a00c1e42a4ec29e17e60eab4ed6bd31a71d89a0
 ```
 
-### 案例2:基于ipeLine实现JAVA项目集成SonarQube代码检测通知Jenkins
+### 案例2:基于pipeLine实现JAVA项目集成SonarQube代码检测通知Jenkins
 
 ![image-20250227105300907](5day-png/32综合案例1.png)
 
@@ -4698,4 +4698,4 @@ pipeline {
 
 
 
-20250316
+20250316 
