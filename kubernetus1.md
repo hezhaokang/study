@@ -5915,7 +5915,8 @@ Calico的工作机制
 
 ```powershell
 概括来说，Calico主要由Felix、Orchestrator Plugin、etcd、BIRD和BGP Router Reflector等组件组成
-	Felix:Calico Agent，运行于每个节点，主要负责维护虚拟接口设备和路由信息	Orchestrator Plugin:编排系统(例如Kubernetes、OpenStack等)用于将Calico整合进行系统中的插件，例如Kubernetes的CNI
+	Felix:Calico Agent，运行于每个节点，主要负责维护虚拟接口设备和路由信息	
+	Orchestrator Plugin:编排系统(例如Kubernetes、OpenStack等)用于将Calico整合进行系统中的插件，例如Kubernetes的CNI
 	etcd:持久存储Calico数据的存储管理系统
 	BIRD:负责分发路由信息的BGP客户端
 	BGPRoute Refector:BGP路由反射器，可选组件，用于较大规模的网络场景
@@ -6012,9 +6013,37 @@ Calico支持多种路由模式
 
 ![image-20250521195833917](kubernetes/image-20250521195833917.png)
 
+![image-20250522165018362](kubernetes/image-20250522165018362.png)
+
+```powershell
+支持的网络模式
+	Native Routing：纯路由模式
+		CALICO_IPV4POLL_IPIP = "Never"
+		CALICO_IPV4POLL_VXLAN = "Never"
+	纯隧道：
+		CALICO_IPV4POLL_IPIP = "always"
+		CALICO_IPV4POLL_VXLAN = "Never"
+	混合模式：
+		CALICO_IPV4POLL_IPIP = "Cross-Subnet"
+		CALICO_IPV4POLL_VXLAN = "Never"
+```
+
+![image-20250522190718646](kubernetes/image-20250522190718646.png)
 
 
 
+![image-20250523123353113](kubernetes/image-20250523123353113.png)
+
+```powershell
+calico的配置接口
+	ippool 类型下的默认的资源对象： default-ipv4-ippool
+	
+路由通告和学习：
+	mash: 点对点
+		n * (n-1)
+	route reflector: 路由反射器
+		n * m (m 为路由反射器的数量)
+```
 
 
 
