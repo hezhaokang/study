@@ -86,6 +86,17 @@ https://www.jenkins.io/zh/doc/book/installing/
 ### 安装
 
 ```bash
+
+sudo mkdir -p /etc/apt/keyrings
+sudo wget -O /etc/apt/keyrings/jenkins-keyring.asc https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" | sudo tee /etc/apt/sources.list.d/jenkins.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y fontconfig openjdk-17-jre
+sudo apt-get install -y jenkins
+sudo systemctl start jenkins
+sudo systemctl status jenkins
+
+
 [root@ubuntu2404 ~]#apt update && apt install -y openjdk-17-jdk
 [root@ubuntu2404 ~]#wget https://mirror.tuna.tsinghua.edu.cn/jenkins/debian-stable/jenkins_2.492.1_all.deb
 [root@ubuntu2404 ~]#dpkg -i ./jenkins_2.492.1_all.deb
